@@ -5,24 +5,26 @@ offline elevation data, weather and your own CdA / Crr. See [SPEC.md](SPEC.md).
 
 ## Status
 
-Phases 1–2 of 8: ride recording and heart rate.
+Phases 1–3 of 8: recording, heart rate, **live estimated power**.
 
-- Start / auto-pause / manual pause / stop, ride time, distance, speed, average speed, elevation
-  gain (from GPS altitude for now; elevation tiles come in phase 3).
-- Recording keeps running with the screen off (foreground service).
-- **Lap**: volume-down key, or the LAP button.
-- Crash-safe: every second is written to a journal; a ride left open is offered for resume.
-- **Heart rate**: any Bluetooth LE strap (Polar, Wahoo, Garmin HRM-Dual…). Pair it once in
-  Parameters; it reconnects by itself. HR and zone shown together ("152 Z3"), average and max HR,
-  HR per lap and time in zones in the summary and in the FIT file.
-- **Parameters**: max HR, HR zones (or from max HR), strap pairing, auto-pause on/off.
-- FIT export at the end of the ride (share to Strava, Drive, e-mail…).
+- **Power** (phase 3): your CdA, Crr and weights, offline elevation tiles for the gradient, live
+  weather (wind at rider height, air density). 10 s power on the Data page, cyan when reliable,
+  grey when less so (poor GPS, On a wheel, no elevation data, very slow). Average, NP and max power
+  in the summary and per lap. Power, grade and Painmeter's own fields in the FIT file.
+- **On a wheel** button: cuts CdA by the factor set in Parameters (0.65), amber banner, reminder
+  after 20 min.
+- The physics are a port of the [Power-calcualtor](https://github.com/Marvin-inc/Power-calcualtor)
+  web tool, checked point by point against it (`core/src/test/.../PostRideModelTest`).
+- Recording: start, auto-pause, pause, stop, laps (volume-down key), crash-safe journal with
+  resume, FIT export.
+- Heart rate: any Bluetooth LE strap, HR + zone field, zones, time in zones.
 
-Power (phase 3) shows `--` for now.
+Before the first ride, set in **Parameters**: weight, FTP, bike weight, CdA, Crr, max HR and zones,
+then **Download around me** (elevation data, ≈ 100 MB, on Wi-Fi).
 
-| Ride | Parameters | Summary |
-|---|---|---|
-| ![](docs/screenshots/ride.png) | ![](docs/screenshots/parameters.png) | ![](docs/screenshots/summary.png) |
+| Ride | On a wheel | Parameters | Summary |
+|---|---|---|---|
+| ![](docs/screenshots/ride.png) | ![](docs/screenshots/ride-wheel.png) | ![](docs/screenshots/parameters.png) | ![](docs/screenshots/summary.png) |
 
 ## Install on the phone
 
@@ -45,10 +47,14 @@ Needs JDK 17+ and the Android SDK (platform 35).
 ## Layout
 
 - `core/`: pure Kotlin, no Android: ride state machine, auto-pause, laps, elevation gain, journal,
-  FIT export (Garmin FIT SDK). Later: the power model and the calibration.
+  FIT export (Garmin FIT SDK), heart rate, the power model (`power/`), elevation tiles
+  (`elevation/`). Later: the calibration.
+- `tools/golden/`: regenerates the reference data from the web tool with Node.
 - `app/`: Android app: `RideService` (foreground GPS), `RideController`, Compose screens in `ui/`.
 
 ## Licences
 
 Code: Apache-2.0. Barlow Condensed font: SIL Open Font License (`licenses/`).
 FIT files are written with the Garmin FIT SDK under the FIT Protocol License.
+Elevation data: AWS Terrain Tiles (SRTM and other sources, see their attribution).
+Weather: Open-Meteo (CC BY 4.0).

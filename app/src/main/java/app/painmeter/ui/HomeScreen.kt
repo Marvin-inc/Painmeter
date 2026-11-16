@@ -30,6 +30,7 @@ fun HomeScreen(
     hasPermission: Boolean,
     gpsAccuracyM: Double?,
     hr: HrState,
+    elevationHere: Boolean?,
     unfinished: File?,
     onStart: () -> Unit,
     onGrant: () -> Unit,
@@ -63,7 +64,12 @@ fun HomeScreen(
                     (if (hr.bpm != null) Pm.Green else Pm.Amber)
             }
             Text(hrText, color = hrColor, fontSize = 16.sp)
-            Text("Power: phase 3", color = Pm.Muted, fontSize = 14.sp)
+            val (eleText, eleColor) = when (elevationHere) {
+                true -> "Elevation data: ready" to Pm.Green
+                false -> "Elevation data: missing here (Parameters)" to Pm.Amber
+                null -> "Elevation data: waiting for GPS" to Pm.Muted
+            }
+            Text(eleText, color = eleColor, fontSize = 16.sp)
         }
 
         if (unfinished != null) {

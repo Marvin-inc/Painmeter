@@ -37,10 +37,7 @@ import app.painmeter.HrState
 import app.painmeter.UserSettings
 import app.painmeter.core.HrZones
 
-/**
- * Parameters (SPEC §9.6), phase 2 part: rider max HR and zones, the HR strap, auto-pause.
- * Weight, FTP, bike and aero settings arrive with the power model in phase 3.
- */
+/** Parameters (SPEC §9.6). Every change is saved at once. */
 @Composable
 fun ParametersScreen(
     settings: UserSettings,
@@ -52,6 +49,9 @@ fun ParametersScreen(
     onPair: (FoundStrap) -> Unit,
     onForget: () -> Unit,
     onBack: () -> Unit,
+    elevation: ElevationPanelState = ElevationPanelState(),
+    onDownloadElevation: () -> Unit = {},
+    onDeleteElevation: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(Pm.Background)) {
         Row(
@@ -71,6 +71,41 @@ fun ParametersScreen(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            Section("RIDER") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DecimalField("Weight kg", settings.riderKg, 30.0..200.0, Modifier.weight(1f)) { onChange(settings.copy(riderKg = it)) }
+                    DecimalField("FTP W", settings.ftpW.toDouble(), 50.0..600.0, Modifier.weight(1f), decimals = 0) { onChange(settings.copy(ftpW = it.toInt())) }
+                }
+            }
+            Section("BIKE & AERO") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DecimalField("Bike weight kg", settings.bikeKg, 3.0..30.0, Modifier.weight(1f)) { onChange(settings.copy(bikeKg = it)) }
+                    DecimalField("Drivetrain loss %", settings.lossPercent, 0.0..10.0, Modifier.weight(1f)) { onChange(settings.copy(lossPercent = it)) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DecimalField("CdA m²", settings.cda, 0.10..0.80, Modifier.weight(1f), decimals = 3) { onChange(settings.copy(cda = it)) }
+                    DecimalField("Crr", settings.crr, 0.0015..0.015, Modifier.weight(1f), decimals = 4) { onChange(settings.copy(crr = it)) }
+                }
+                Text("Calibration (coast-down) comes in phase 6. Until then, use the web tool's result.", color = Pm.Muted, fontSize = 13.sp)
+            }
+            Section("ON A WHEEL") {
+                DecimalField("CdA factor on a wheel", settings.draftFactor, 0.3..1.0, Modifier.fillMaxWidth(), decimals = 2) { onChange(settings.copy(draftFactor = it)) }
+                ToggleRow("Reminder after 20 min", "Vibrates in case you forgot to switch back to Solo", settings.draftReminder) {
+                    onChange(settings.copy(draftReminder = it))
+                }
+            }
+            Section("WEATHER & WIND") {
+                ToggleRow("Live weather (Open-Meteo)", "Wind and air density, refreshed every 20 min or 10 km", settings.weatherOn) {
+                    onChange(settings.copy(weatherOn = it))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DecimalField("Wind factor", settings.windFactor, 0.0..1.0, Modifier.weight(1f), decimals = 2) { onChange(settings.copy(windFactor = it)) }
+                    DecimalField("ρ without weather", settings.rhoFallback, 0.8..1.4, Modifier.weight(1f), decimals = 3) { onChange(settings.copy(rhoFallback = it)) }
+                }
+            }
+            Section("ELEVATION DATA") {
+                ElevationPanel(elevation, onDownloadElevation, onDeleteElevation)
+            }
             Section("HEART RATE") {
                 HrZonesEditor(settings, onChange)
             }
@@ -79,21 +114,11 @@ fun ParametersScreen(
             }
             Section("RECORDING") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Auto-pause", color = Pm.Text, fontSize = 16.sp)
-                        Text("Below 2 km/h for 3 s, restarts above 4 km/h", color = Pm.Muted, fontSize = 13.sp)
+                    ToggleRow("Auto-pause", "Below 2 km/h for 3 s, restarts above 4 km/h", settings.autoPause) {
+                        onChange(settings.copy(autoPause = it))
                     }
-                    Switch(
-                        checked = settings.autoPause,
-                        onCheckedChange = { onChange(settings.copy(autoPause = it)) },
-                        colors = SwitchDefaults.colors(checkedTrackColor = Pm.Blue),
-                    )
                 }
             }
-            Text(
-                "Weight, FTP, CdA and Crr come with the power model (phase 3).",
-                color = Pm.Muted, fontSize = 13.sp,
-            )
         }
     }
 }
@@ -201,6 +226,92 @@ private fun NumberField(label: String, value: String, modifier: Modifier, onValu
         label = { Text(label) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = modifier,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Pm.Text, unfocusedTextColor = Pm.Text,
+            focusedBorderColor = Pm.Power, unfocusedBorderColor = Pm.Border,
+            focusedLabelColor = Pm.Power, unfocusedLabelColor = Pm.Muted, cursorColor = Pm.Power,
+        ),
+    )
+}
+
+/** What the elevation section shows. */
+data class ElevationPanelState(
+    val tiles: List<String> = emptyList(),
+    val storageMb: Int = 0,
+    val download: app.painmeter.TileDownload? = null,
+    val hasPosition: Boolean = false,
+    val hereCovered: Boolean = false,
+)
+
+@Composable
+private fun ElevationPanel(state: ElevationPanelState, onDownload: () -> Unit, onDelete: () -> Unit) {
+    val (line, color) = when {
+        state.hereCovered -> "Ready here · ${state.tiles.size} tiles · ${state.storageMb} MB" to Pm.Green
+        state.tiles.isEmpty() -> "None on the phone: gradient falls back to GPS altitude" to Pm.Amber
+        else -> "${state.tiles.size} tiles · ${state.storageMb} MB · not covering your position" to Pm.Amber
+    }
+    Text(line, color = color, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    Text(
+        "Download at home on Wi-Fi: the 3×3 tiles around you cover about 300 × 200 km (≈ 100 MB).",
+        color = Pm.Muted, fontSize = 13.sp,
+    )
+    state.download?.let { d ->
+        val text = if (d.running) "Downloading ${d.done} / ${d.total}…"
+        else if (d.failed.isNotEmpty()) "Done, ${d.failed.size} failed (${d.failed.joinToString()}): try again"
+        else "Done"
+        Text(text, color = if (d.failed.isNotEmpty()) Pm.Amber else Pm.Muted, fontSize = 14.sp)
+    }
+    Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        BigButton(
+            if (state.hasPosition) "DOWNLOAD AROUND ME" else "WAITING FOR GPS",
+            Modifier.weight(1.6f),
+            if (state.hasPosition) Pm.Blue else Pm.Surface,
+            if (state.hasPosition) Color.White else Pm.Muted,
+            onClick = { if (state.hasPosition && state.download?.running != true) onDownload() },
+        )
+        if (state.tiles.isNotEmpty()) BigButton("DELETE", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onDelete)
+    }
+}
+
+@Composable
+private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Pm.Text, fontSize = 16.sp)
+            Text(subtitle, color = Pm.Muted, fontSize = 13.sp)
+        }
+        Switch(checked = checked, onCheckedChange = onChange, colors = SwitchDefaults.colors(checkedTrackColor = Pm.Blue))
+    }
+}
+
+/** A number field that saves as soon as the text is a valid value inside [range]. */
+@Composable
+private fun DecimalField(
+    label: String,
+    value: Double,
+    range: ClosedFloatingPointRange<Double>,
+    modifier: Modifier,
+    decimals: Int = 1,
+    onValue: (Double) -> Unit,
+) {
+    fun show(v: Double) = if (decimals == 0) Math.round(v).toString() else java.math.BigDecimal(v).setScale(decimals, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+    var text by remember { mutableStateOf(show(value)) }
+    // Follow outside changes, but never rewrite what the rider is typing ("0." stays "0.").
+    androidx.compose.runtime.LaunchedEffect(value) {
+        if (text.replace(',', '.').toDoubleOrNull() != value) text = show(value)
+    }
+    val parsed = text.replace(',', '.').toDoubleOrNull()
+    OutlinedTextField(
+        value = text,
+        onValueChange = { t ->
+            text = t.filter { it.isDigit() || it == '.' || it == ',' }.take(8)
+            text.replace(',', '.').toDoubleOrNull()?.takeIf { it in range }?.let(onValue)
+        },
+        label = { Text(label) },
+        singleLine = true,
+        isError = parsed == null || parsed !in range,
+        keyboardOptions = KeyboardOptions(keyboardType = if (decimals == 0) KeyboardType.Number else KeyboardType.Decimal),
         modifier = modifier,
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = Pm.Text, unfocusedTextColor = Pm.Text,

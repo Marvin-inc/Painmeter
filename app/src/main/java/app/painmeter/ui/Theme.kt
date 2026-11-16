@@ -22,6 +22,17 @@ object Pm {
     val Amber = Color(0xFFF5A524)
     val Blue = Color(0xFF2F6FED)
     val Green = Color(0xFF3BC77A)
+    /** Power when the estimate is less trustworthy (SPEC §5.3). */
+    val Uncertain = Color(0xFF8A94A2)
+
+    /** Gradient bands of the climb profile: <3, 3–6, 6–9, 9–12, >12 %. */
+    fun gradeColor(percent: Double): Color = when {
+        percent < 3 -> Text
+        percent < 6 -> Color(0xFFF2C94C)
+        percent < 9 -> Color(0xFFF2994A)
+        percent < 12 -> Color(0xFFEB5757)
+        else -> Color(0xFFB07CE8)
+    }
 
     /** HR zones 1..5 (SPEC §9.1): grey, blue, green, orange, red. */
     val Zones = listOf(Color(0xFF9AA4B2), Color(0xFF4C9AFF), Color(0xFF3BC77A), Color(0xFFFF9F43), Color(0xFFFF5A5F))
@@ -46,6 +57,10 @@ object Format {
         return if (h > 0) String.format(Locale.ROOT, "%d:%02d:%02d", h, m, sec)
         else String.format(Locale.ROOT, "%d:%02d", m, sec)
     }
+
+    fun grade(percent: Double): String = String.format(Locale.ROOT, "%.1f", percent).let { if (it == "-0.0") "0.0" else it }
+
+    fun watts(w: Double?): String = w?.let { Math.round(it).toString() } ?: "--"
 
     fun metres(m: Double): String = String.format(Locale.ROOT, "%.0f", m)
 }

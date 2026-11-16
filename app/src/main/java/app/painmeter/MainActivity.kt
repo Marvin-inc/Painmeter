@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.painmeter.ui.ElevationPanelState
 import app.painmeter.ui.HomeScreen
 import app.painmeter.ui.ParametersScreen
 import app.painmeter.ui.RideScreen
@@ -34,6 +35,8 @@ class MainActivity : ComponentActivity() {
 
     private var hasLocation by mutableStateOf(false)
     private var showParameters by mutableStateOf(false)
+    /** Latest position seen before the ride: latitude, longitude, accuracy (m). */
+    private var position by mutableStateOf<Triple<Double, Double, Double?>?>(null)
 
     private val askPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         hasLocation = locationGranted()
@@ -58,6 +61,8 @@ class MainActivity : ComponentActivity() {
                 current != null -> RideScreen(
                     snap = current,
                     hr = hr,
+                    onDraft = { RideController.setDraft(it) },
+                    draftReminder = settings.draftReminder,
                     onLap = { RideController.lap() },
                     onTogglePause = { RideController.togglePause() },
                     onStop = { RideService.stop(this) },
@@ -66,6 +71,10 @@ class MainActivity : ComponentActivity() {
                 showParameters -> {
                     val found by HrMonitor.found.collectAsStateWithLifecycle()
                     val scanning by HrMonitor.scanning.collectAsStateWithLifecycle()
+                    val tiles by ElevationStore.tiles.collectAsStateWithLifecycle()
+                    val download by ElevationStore.download.collectAsStateWithLifecycle()
+                    val here = position
+                    GpsPreview(enabled = hasLocation) { position = it }
                     ParametersScreen(
                         settings = settings,
                         hr = hr,
@@ -76,15 +85,26 @@ class MainActivity : ComponentActivity() {
                         onPair = { HrMonitor.pair(it) },
                         onForget = { HrMonitor.forget() },
                         onBack = { HrMonitor.stopScan(); showParameters = false },
+                        elevation = ElevationPanelState(
+                            tiles = tiles,
+                            storageMb = remember(tiles) { (ElevationStore.storageBytes() / 1_000_000).toInt() },
+                            download = download,
+                            hasPosition = here != null,
+                            hereCovered = here != null && here.first.let { ElevationStore.has(here.first, here.second) } && tiles.isNotEmpty(),
+                        ),
+                        onDownloadElevation = { here?.let { ElevationStore.downloadAround(it.first, it.second) } },
+                        onDeleteElevation = { ElevationStore.deleteAll() },
                     )
                 }
                 else -> {
-                    var accuracy by remember { mutableStateOf<Double?>(null) }
-                    GpsPreview(enabled = hasLocation) { accuracy = it }
+                    val tiles by ElevationStore.tiles.collectAsStateWithLifecycle()
+                    GpsPreview(enabled = hasLocation) { position = it }
+                    val here = position
                     HomeScreen(
                         hasPermission = hasLocation,
-                        gpsAccuracyM = accuracy,
+                        gpsAccuracyM = here?.third,
                         hr = hr,
+                        elevationHere = here?.let { tiles.isNotEmpty() && ElevationStore.has(it.first, it.second) },
                         unfinished = unfinished,
                         onStart = { RideService.start(this) },
                         onGrant = { requestPermissions() },
@@ -154,13 +174,13 @@ class MainActivity : ComponentActivity() {
     /** Listens to GPS while the home screen is shown, so the rider sees when the fix is ready. */
     @SuppressLint("MissingPermission")
     @androidx.compose.runtime.Composable
-    private fun GpsPreview(enabled: Boolean, onAccuracy: (Double?) -> Unit) {
+    private fun GpsPreview(enabled: Boolean, onPosition: (Triple<Double, Double, Double?>) -> Unit) {
         DisposableEffect(enabled) {
             if (!enabled) return@DisposableEffect onDispose { }
             val client = LocationServices.getFusedLocationProviderClient(this@MainActivity)
             val callback = object : LocationCallback() {
                 override fun onLocationResult(result: LocationResult) {
-                    result.lastLocation?.let { onAccuracy(if (it.hasAccuracy()) it.accuracy.toDouble() else null) }
+                    result.lastLocation?.let { onPosition(Triple(it.latitude, it.longitude, if (it.hasAccuracy()) it.accuracy.toDouble() else null)) }
                 }
             }
             client.requestLocationUpdates(

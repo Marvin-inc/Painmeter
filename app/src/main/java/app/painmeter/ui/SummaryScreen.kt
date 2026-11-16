@@ -39,6 +39,14 @@ fun SummaryScreen(ride: FinishedRide, zones: HrZones, onShare: () -> Unit, onDon
                 DataField("MAX km/h", Format.speedKmh(s.maxSpeedMps), Modifier.weight(1f), valueSize = 44.sp)
                 DataField("GAIN · m", Format.metres(s.elevationGainM), Modifier.weight(1f), valueSize = 44.sp)
             }
+            if (s.avgPower != null) {
+                Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DataField("AVG POWER · W", Format.watts(s.avgPower), Modifier.weight(1f), valueSize = 44.sp, valueColor = Pm.Power)
+                    DataField("NP · W", Format.watts(s.normalizedPower), Modifier.weight(1f), valueSize = 44.sp, valueColor = Pm.Power)
+                    DataField("MAX · W", Format.watts(s.maxPower), Modifier.weight(1f), valueSize = 44.sp)
+                }
+                Text("Estimated power, not measured: see SPEC §5.4 for the expected accuracy.", color = Pm.Muted, fontSize = 13.sp)
+            }
             if (s.avgHr != null) {
                 Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     HrField(s.avgHr, s.avgHr?.let(zones::zoneOf), Modifier.weight(1f), 44.sp, label = "AVG HR · zone")
@@ -58,6 +66,7 @@ fun SummaryScreen(ride: FinishedRide, zones: HrZones, onShare: () -> Unit, onDon
                             Text(Format.duration(lap.timerMs), color = Pm.Text, fontSize = 15.sp)
                             Text("${Format.distanceKm(lap.distanceM)} km", color = Pm.Text, fontSize = 15.sp)
                             Text("${Format.speedKmh(lap.avgSpeedMps)} km/h", color = Pm.Text, fontSize = 15.sp)
+                            Text(lap.avgPower?.let { "${Math.round(it)} W" } ?: "", color = Pm.Power, fontSize = 15.sp)
                             Text(lap.avgHr?.let { "$it bpm" } ?: "", color = Pm.zoneColor(lap.avgHr?.let(zones::zoneOf)) ?: Pm.Muted, fontSize = 15.sp)
                         }
                     }

@@ -60,8 +60,11 @@ fun RideScreen(
     onLap: () -> Unit,
     onTogglePause: () -> Unit,
     onStop: () -> Unit,
+    onDraft: (Boolean) -> Unit = {},
+    draftReminder: Boolean = true,
 ) {
     val context = LocalContext.current
+    val drafting = snap.power.drafting
     val view = LocalView.current
     DisposableEffect(Unit) {
         view.keepScreenOn = true
@@ -77,6 +80,19 @@ fun RideScreen(
     }
     LaunchedEffect(lapFlash) {
         if (lapFlash != null) { delay(2000); lapFlash = null }
+    }
+
+    // SPEC §6: a reminder after 20 min On a wheel, in case the rider forgot to switch back.
+    var stillOnWheel by remember { mutableStateOf(false) }
+    LaunchedEffect(drafting, draftReminder) {
+        stillOnWheel = false
+        if (drafting && draftReminder) {
+            delay(20 * 60_000L)
+            vibrate(context); delay(300); vibrate(context)
+            stillOnWheel = true
+            delay(5000)
+            stillOnWheel = false
+        }
     }
 
     val battery = remember(snap.rideTimeMs / 60_000) {
@@ -98,14 +114,22 @@ fun RideScreen(
                 )
             )
             Box(Modifier.fillMaxWidth().height(1.dp).background(Pm.Divider))
-            if (paused) {
+            if (drafting) {
                 Box(
                     Modifier.fillMaxWidth().height(34.dp).background(Pm.Amber),
                     contentAlignment = Alignment.Center,
                 ) {
+                    Text("ON A WHEEL · power uncertain", color = Color(0xFF111111), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+            }
+            if (paused) {
+                Box(
+                    Modifier.fillMaxWidth().height(34.dp).background(Pm.SurfaceAlt),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
                         if (snap.autoPaused) "AUTO-PAUSED · starts again when you ride" else "PAUSED",
-                        color = Color(0xFF111111), fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                        color = Pm.Amber, fontWeight = FontWeight.Bold, fontSize = 14.sp,
                     )
                 }
             }
@@ -114,9 +138,15 @@ fun RideScreen(
                 Modifier.weight(1f).padding(10.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                val p10 = snap.power.power10s
                 DataField(
-                    "POWER 10 s · W", "--", Modifier.fillMaxWidth().weight(1.35f),
-                    valueSize = 150.sp, valueColor = Pm.Disabled,
+                    "POWER 10 s · W", p10?.let { Math.round(it).toString() } ?: "--", Modifier.fillMaxWidth().weight(1.35f),
+                    valueSize = 150.sp,
+                    valueColor = when {
+                        p10 == null -> Pm.Disabled
+                        snap.power.reliable -> Pm.Power
+                        else -> Pm.Uncertain
+                    },
                 )
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DataField("SPEED · km/h", Format.speedKmh(snap.speedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 88.sp)
@@ -124,7 +154,11 @@ fun RideScreen(
                 }
                 Row(Modifier.fillMaxWidth().weight(0.62f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DataField("CLOCK", clock, Modifier.weight(1f).fillMaxHeight())
-                    DataField("GRADE · %", "--", Modifier.weight(1f).fillMaxHeight(), valueColor = Pm.Disabled)
+                    val grade = snap.power.gradePercent
+                    DataField(
+                        "GRADE · %", grade?.let { Format.grade(it) } ?: "--", Modifier.weight(1f).fillMaxHeight(),
+                        valueColor = grade?.let { Pm.gradeColor(it) } ?: Pm.Disabled,
+                    )
                     DataField("AVG km/h", Format.speedKmh(snap.avgSpeedMps), Modifier.weight(1f).fillMaxHeight())
                 }
                 Row(Modifier.fillMaxWidth().weight(0.62f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -135,15 +169,34 @@ fun RideScreen(
             }
 
             Row(
-                Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 12.dp).height(64.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(56.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 BigButton(if (paused) "RESUME" else "PAUSE", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onTogglePause)
                 BigButton("LAP ${snap.lapNumber}", Modifier.weight(1.2f), Pm.Blue, Color.White, onClick = onLap)
                 BigButton("HOLD\nTO STOP", Modifier.weight(1f), Pm.Surface, Pm.Rec, onLongClick = onStop)
             }
+            Row(
+                Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 12.dp).height(60.dp),
+            ) {
+                BigButton(
+                    if (drafting) "ON A WHEEL · tap for SOLO" else "SOLO · tap when on a wheel",
+                    Modifier.weight(1f),
+                    if (drafting) Pm.Amber else Pm.Surface,
+                    if (drafting) Color(0xFF111111) else Pm.Text,
+                    onClick = { onDraft(!drafting) },
+                )
+            }
         }
 
+        if (stillOnWheel) {
+            Box(
+                Modifier.align(Alignment.Center).clip(RoundedCornerShape(20.dp)).background(Pm.Amber)
+                    .padding(horizontal = 28.dp, vertical = 20.dp)
+            ) {
+                Text("STILL ON A WHEEL?", color = Color(0xFF111111), fontWeight = FontWeight.Bold, fontSize = 30.sp)
+            }
+        }
         lapFlash?.let { n ->
             Box(
                 Modifier.align(Alignment.Center).clip(RoundedCornerShape(20.dp)).background(Pm.Blue)

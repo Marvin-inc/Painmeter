@@ -78,8 +78,11 @@ Priority of elevation sources:
    last 100 m travelled. Gradient = slope over that window (lags by about 50 m).
 3. **GPS altitude**: recorded, used only as a fallback when no tile covers the area.
 
-- Elevation tiles: Copernicus GLO-30 (30 m, free), downloaded per region from Parameters.
-  About 25 MB per 1°×1° tile.
+- Elevation tiles: AWS Terrain Tiles open dataset, "skadi" layout: 1°×1° tiles in the SRTM HGT
+  format at 1 arc-second (~30 m), gzip, about 10–25 MB each
+  (`https://s3.amazonaws.com/elevation-tiles-prod/skadi/N45/N45E005.hgt.gz`). Downloaded from
+  Parameters ("around me" = the 3×3 tiles around the current position). Chosen over Copernicus
+  GeoTIFF because HGT needs no TIFF decoder.
 - **Elevation gain**: from the chosen elevation, counting a rise only once it exceeds 4 m since the
   last low point (hysteresis), to reject noise.
 - Recorded every second: GPS altitude, tile elevation, gradient used, source used.
@@ -382,6 +385,4 @@ web tool.
 ## 15. Open points
 
 - **[OPEN]** How Strava labels power from a non-Garmin device (estimated vs measured).
-- **[OPEN]** Source and UI to download elevation tiles (AWS open data bucket vs Open-Meteo
-  elevation API as an online fallback).
 - **[OPEN]** Screen design: layouts, fonts and colours to be fixed from the mockups.

@@ -62,6 +62,7 @@ object RideController {
     fun init(context: Context) {
         Settings.init(context)
         HrMonitor.init(context)
+        ElevationStore.init(context)
         if (!::store.isInitialized) store = RideStore(context.applicationContext)
         HrMonitor.onReading = { t, bpm -> onHeartRate(t, bpm) }
         refreshUnfinished()
@@ -80,6 +81,8 @@ object RideController {
         val dir = store.newRideDir(nowMs)
         open(dir, RideSession(rideSettings()))
         record(session!!.start(nowMs))
+        weatherAt = null
+        _weather.value = null
         _finished.value = null
         publish(nowMs)
     }
@@ -107,10 +110,48 @@ object RideController {
         journal = JournalWriter(store.journal(dir))
     }
 
-    fun onFix(fix: Fix) {
+    fun onFix(raw: Fix) {
         val s = session ?: return
+        val fix = raw.copy(demAltitudeM = ElevationStore.elevation(raw.lat, raw.lon))
         record(s.onFix(fix))
+        maybeRefreshWeather(fix)
         publish(System.currentTimeMillis())
+    }
+
+    // Weather: at the start, then every 20 min or 10 km (SPEC §2).
+    private var weatherAt: Fix? = null
+    private var weatherBusy = false
+
+    private fun maybeRefreshWeather(fix: Fix) {
+        if (!Settings.current.value.weatherOn || weatherBusy) return
+        val last = weatherAt
+        val due = last == null || fix.timeMs - last.timeMs > 20 * 60_000 ||
+            app.painmeter.core.Geo.distanceM(last, fix) > 10_000
+        if (!due) return
+        weatherBusy = true
+        scope.launch {
+            val w = WeatherClient.current(fix.lat, fix.lon)
+            weatherBusy = false
+            if (w != null) {
+                weatherAt = fix
+                session?.let { record(it.onWeather(System.currentTimeMillis(), w)) }
+                _weather.value = w
+            } else {
+                // Offline: try again in 2 minutes.
+                weatherAt = last?.copy(timeMs = fix.timeMs - 18 * 60_000) ?: fix.copy(timeMs = fix.timeMs - 18 * 60_000)
+            }
+        }
+    }
+
+    private val _weather = MutableStateFlow<app.painmeter.core.power.WeatherNow?>(null)
+    /** Latest weather received during this ride, null before the first one. */
+    val weather: StateFlow<app.painmeter.core.power.WeatherNow?> = _weather
+
+    /** Solo / On a wheel (SPEC §6). */
+    fun setDraft(onWheel: Boolean, nowMs: Long = System.currentTimeMillis()) {
+        val s = session ?: return
+        record(s.setDraft(nowMs, onWheel))
+        publish(nowMs)
     }
 
     fun onHeartRate(timeMs: Long, bpm: Int) {
