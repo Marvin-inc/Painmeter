@@ -26,6 +26,7 @@ data class FinishedRide(
     val snapshot: RideSnapshot,
     val laps: List<LapSummary>,
     val fitFile: File?,
+    val climbs: List<app.painmeter.core.climb.ClimbProgress> = emptyList(),
     val error: String? = null,
 )
 
@@ -144,6 +145,10 @@ object RideController {
         val dir = store.newRideDir(nowMs)
         open(dir, RideSession(rideSettings()))
         record(session!!.start(nowMs))
+        detector = app.painmeter.core.climb.LiveClimbDetector(Settings.current.value.climbs)
+        finishedClimb = null
+        _climb.value = ClimbUi()
+        analyseRoute()
         weatherAt = null
         follower = null
         turnWarned = null
@@ -179,11 +184,110 @@ object RideController {
 
     fun onFix(raw: Fix) {
         val s = session ?: return
-        val fix = raw.copy(demAltitudeM = ElevationStore.elevation(raw.lat, raw.lon))
-        record(s.onFix(fix))
+        var fix = raw.copy(demAltitudeM = ElevationStore.elevation(raw.lat, raw.lon))
         updateNav(fix)
+        // On the route, the route profile gives the gradient without lag (SPEC §4).
+        val onRoute = _nav.value?.state?.takeIf { !it.offRoute && it.offsetM <= 50 }
+        val profile = routeProfile
+        if (onRoute != null && profile != null && profile.route === _nav.value?.route) {
+            fix = fix.copy(routeGradePercent = profile.gradeAt(onRoute.distanceAlongM))
+        }
+        record(s.onFix(fix))
+        if (s.status == RideStatus.RECORDING) updateClimb(fix, s.snapshot(fix.timeMs), onRoute?.distanceAlongM)
         maybeRefreshWeather(fix)
         publish(System.currentTimeMillis())
+    }
+
+    // ------------------------------------------------------------ climbs (SPEC §7)
+
+    /** What the Climb page shows. */
+    data class ClimbUi(
+        /** The climb in progress, or the one just finished (finished = true) for 10 s. */
+        val progress: app.painmeter.core.climb.ClimbProgress? = null,
+        /** On a route climb: its whole profile (distance from its start, elevation) and the rider on it. */
+        val routeProfile: List<Pair<Double, Double>>? = null,
+        val riderOnClimbM: Double? = null,
+        val remainingM: Double? = null,
+        val remainingGainM: Double? = null,
+        val climbNumber: Int? = null,
+        val climbCount: Int = 0,
+        val next: app.painmeter.core.climb.RouteClimb? = null,
+        val distanceToNextM: Double? = null,
+    ) {
+        val remainingGradePercent: Double?
+            get() = if (remainingM != null && remainingGainM != null && remainingM > 50) remainingGainM / remainingM * 100 else null
+    }
+
+    enum class ClimbEvent { STARTED, FINISHED }
+
+    private val _climb = MutableStateFlow(ClimbUi())
+    val climb: StateFlow<ClimbUi> = _climb
+    private val _climbEvents = MutableSharedFlow<ClimbEvent>(extraBufferCapacity = 4)
+    val climbEvents: SharedFlow<ClimbEvent> = _climbEvents
+
+    private val _routeClimbs = MutableStateFlow<List<app.painmeter.core.climb.RouteClimb>>(emptyList())
+    /** Climbs found on the loaded route. */
+    val routeClimbs: StateFlow<List<app.painmeter.core.climb.RouteClimb>> = _routeClimbs
+
+    private var routeProfile: app.painmeter.core.climb.RouteProfile? = null
+    private var detector = app.painmeter.core.climb.LiveClimbDetector()
+    private var finishedClimb: app.painmeter.core.climb.ClimbProgress? = null
+    private var finishedAtMs = 0L
+
+    /** Builds the route profile (with elevation tiles where the GPX has none) and finds its climbs. */
+    fun analyseRoute() {
+        val route = RouteStore.route.value ?: run { routeProfile = null; _routeClimbs.value = emptyList(); return }
+        val settings = Settings.current.value.climbs
+        scope.launch {
+            val profile = withContext(Dispatchers.IO) {
+                app.painmeter.core.climb.RouteProfile(route) { lat, lon -> ElevationStore.elevationNow(lat, lon) }
+            }
+            if (RouteStore.route.value !== route) return@launch
+            routeProfile = profile
+            _routeClimbs.value = withContext(Dispatchers.Default) { app.painmeter.core.climb.ClimbFinder.find(profile, settings) }
+        }
+    }
+
+    private fun updateClimb(fix: Fix, snap: RideSnapshot, along: Double?) {
+        val profile = routeProfile?.takeIf { it.route === _nav.value?.route }
+        val ele = if (along != null && profile != null) profile.elevationAt(along) else fix.demAltitudeM ?: fix.altitudeM ?: return
+        val climbs = _routeClimbs.value
+        val rc = if (along != null && profile != null) climbs.firstOrNull { along >= it.startM && along < it.endM - 5 } else null
+
+        val wasActive = detector.active
+        if (rc != null && !detector.active) detector.startRouteClimb(rc)
+        var p = detector.add(
+            app.painmeter.core.climb.ClimbSample(fix.timeMs, snap.distanceM, ele, snap.power.power1Hz, snap.hrBpm),
+            onRouteClimb = rc != null,
+        )
+        val onRouteClimb = p?.fromRoute
+        if (onRouteClimb != null && !p!!.finished && (along == null || along >= onRouteClimb.endM - 5)) p = detector.endRouteClimb()
+        if (!wasActive && detector.active) _climbEvents.tryEmit(ClimbEvent.STARTED)
+        if (p?.finished == true) {
+            finishedClimb = p
+            finishedAtMs = fix.timeMs
+            _climbEvents.tryEmit(ClimbEvent.FINISHED)
+        }
+
+        val showFinished = finishedClimb?.takeIf { fix.timeMs - finishedAtMs <= 10_000 && !detector.active }
+        val shown = if (detector.active) p else showFinished
+        val r = shown?.fromRoute
+        val next = if (along != null) climbs.firstOrNull { it.startM > along } else null
+        _climb.value = ClimbUi(
+            progress = shown,
+            routeProfile = if (r != null && profile != null) {
+                generateSequence(r.startM) { it + 20 }.takeWhile { it <= r.endM }.map { (it - r.startM) to profile.elevationAt(it) }.toList()
+            } else null,
+            riderOnClimbM = if (r != null && along != null) (along - r.startM).coerceIn(0.0, r.lengthM) else null,
+            remainingM = if (r != null && along != null && !shown.finished) (r.endM - along).coerceAtLeast(0.0) else null,
+            remainingGainM = if (r != null && along != null && profile != null && !shown.finished) {
+                (profile.elevationAt(r.endM) - profile.elevationAt(along)).coerceAtLeast(0.0)
+            } else null,
+            climbNumber = r?.let { it.index + 1 },
+            climbCount = climbs.size,
+            next = next,
+            distanceToNextM = next?.let { it.startM - along!! },
+        )
     }
 
     // Weather: at the start, then every 20 min or 10 km (SPEC §2).
@@ -263,8 +367,11 @@ object RideController {
         _ride.value = null
         val snap = s.snapshot(nowMs)
         val laps = s.completedLaps
+        // A climb still going at the stop counts up to here.
+        if (detector.active) detector.endRouteClimb()
+        val climbs = detector.climbs.toList()
         scope.launch {
-            _finished.value = export(dir, snap, laps)
+            _finished.value = export(dir, snap, laps).copy(climbs = climbs)
             onDone()
         }
     }

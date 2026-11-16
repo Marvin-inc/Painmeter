@@ -75,6 +75,17 @@ object ElevationStore {
         return null
     }
 
+    /** Ground elevation, reading the tile now if needed. Call from a background thread. */
+    fun elevationNow(lat: Double, lon: Double): Double? {
+        val name = HgtTile.nameFor(lat, lon)
+        loaded[name]?.let { return it.elevation(lat, lon) }
+        if (!file(name).exists()) return null
+        val tile = runCatching { HgtTile.read(file(name)) }.getOrNull() ?: return null
+        if (loaded.size >= 2) loaded.keys.firstOrNull()?.let { loaded.remove(it) }
+        loaded[name] = tile
+        return tile.elevation(lat, lon)
+    }
+
     /** Downloads the tiles within [radiusDeg] of a point (default: the 3×3 tiles around it). */
     fun downloadAround(lat: Double, lon: Double, radiusDeg: Double = 1.0) {
         if (_download.value?.running == true) return

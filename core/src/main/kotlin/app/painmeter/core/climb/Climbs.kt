@@ -176,8 +176,9 @@ class LiveClimbDetector(private val s: ClimbSettings = ClimbSettings()) {
     private var routeClimb: RouteClimb? = null
     private var topIndex = 0
     private var belowSinceM: Double? = null
+    private var pendingRoute: RouteClimb? = null
 
-    val active: Boolean get() = current != null
+    val active: Boolean get() = current != null || pendingRoute != null
 
     /** Finished climbs, oldest first. */
     val climbs = mutableListOf<ClimbProgress>()
@@ -190,6 +191,7 @@ class LiveClimbDetector(private val s: ClimbSettings = ClimbSettings()) {
         samples += sample
         trim()
         val i = samples.size - 1
+        pendingRoute?.let { routeClimb = it; current = i; topIndex = i; pendingRoute = null }
         val start = current
         if (start == null) {
             if (!onRouteClimb && routeClimb == null) detectStart(i)
@@ -209,11 +211,10 @@ class LiveClimbDetector(private val s: ClimbSettings = ClimbSettings()) {
         return progress(start, i, false)
     }
 
+    /** Starts a route climb at the next sample. */
     fun startRouteClimb(c: RouteClimb) {
-        if (current != null) return
-        routeClimb = c
-        current = samples.size - 1
-        topIndex = samples.size - 1
+        if (active) return
+        pendingRoute = c
     }
 
     fun endRouteClimb(): ClimbProgress? {

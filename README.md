@@ -5,7 +5,7 @@ offline elevation data, weather and your own CdA / Crr. See [SPEC.md](SPEC.md).
 
 ## Status
 
-Phases 1–4 of 8: recording, heart rate, live estimated power, **map and route**.
+Phases 1–5 of 8: recording, heart rate, live estimated power, map and route, **climbs**.
 
 - **Power** (phase 3): your CdA, Crr and weights, offline elevation tiles for the gradient, live
   weather (wind at rider height, air density). 10 s power on the Data page, cyan when reliable,
@@ -22,14 +22,20 @@ Phases 1–4 of 8: recording, heart rate, live estimated power, **map and route*
   in blue and ridden track in cyan, zoom kept between rides; with a GPX route: next-turn arrow from
   300 m (vibration at 100 m), distance to finish, OFF ROUTE alert after 10 s more than 50 m away.
   Import a GPX in Parameters or open one from Komoot / Strava / Files with Painmeter.
+- **Climbs** (phase 5): found in advance on the route, or detected live (start moved back to where
+  the gradient first went above 3 %). Climb page: profile coloured by gradient, power 10 s, average
+  power since the start of the climb, gradient, speed, VAM, HR; on a route also distance, height
+  and average gradient left to the top, and the next climb when not climbing. The page opens by
+  itself when a climb starts. On a route the gradient comes from the route profile (no lag).
+  Climbs table in the summary.
 
 Before the first ride, set in **Parameters**: weight, FTP, bike weight, CdA, Crr, max HR and zones,
 then **Download around me** (elevation data, ≈ 100 MB, on Wi-Fi), and import your region's map
 (**Get maps** → download the `.map` file → **Import .map**).
 
-| Ride | Map, next turn | Off route | On a wheel | Summary |
-|---|---|---|---|---|
-| ![](docs/screenshots/ride.png) | ![](docs/screenshots/ride-map.png) | ![](docs/screenshots/ride-map-offroute.png) | ![](docs/screenshots/ride-wheel.png) | ![](docs/screenshots/summary.png) |
+| Ride | Climb (route) | Climb (live) | Map, next turn | Off route | Summary |
+|---|---|---|---|---|---|
+| ![](docs/screenshots/ride.png) | ![](docs/screenshots/ride-climb.png) | ![](docs/screenshots/ride-climb-live.png) | ![](docs/screenshots/ride-map.png) | ![](docs/screenshots/ride-map-offroute.png) | ![](docs/screenshots/summary.png) |
 
 ## Install on the phone
 
@@ -53,7 +59,7 @@ Needs JDK 17+ and the Android SDK (platform 35).
 
 - `core/`: pure Kotlin, no Android: ride state machine, auto-pause, laps, elevation gain, journal,
   FIT export (Garmin FIT SDK), heart rate, the power model (`power/`), elevation tiles
-  (`elevation/`), GPX routes, route following and turn detection (`route/`). Later: the calibration.
+  (`elevation/`), GPX routes, route following and turn detection (`route/`), climbs (`climb/`). Later: the calibration.
 - `tools/golden/`: regenerates the reference data from the web tool with Node.
 - `app/`: Android app: `RideService` (foreground GPS), `RideController`, Compose screens in `ui/`.
 

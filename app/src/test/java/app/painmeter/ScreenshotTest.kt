@@ -6,7 +6,11 @@ import app.painmeter.core.HrZones
 import app.painmeter.core.LapSummary
 import app.painmeter.core.RideSnapshot
 import app.painmeter.core.RideStatus
+import app.painmeter.core.climb.ClimbProgress
+import app.painmeter.core.climb.RouteClimb
 import app.painmeter.core.power.PowerState
+import app.painmeter.ui.CLIMB_PAGE
+import app.painmeter.ui.MAP_PAGE
 import app.painmeter.core.route.NavState
 import app.painmeter.core.route.Route
 import app.painmeter.core.route.RoutePoint
@@ -69,14 +73,55 @@ class ScreenshotTest {
 
     @Test fun rideMapNextTurn() {
         val (nav, track) = navAt(750.0, 4.0, false)
-        compose.setContent { RideScreen(snap, HrState.Connected("Polar H10", 152, true), {}, {}, {}, nav = nav, track = track, initialPage = 1) }
+        compose.setContent { RideScreen(snap, HrState.Connected("Polar H10", 152, true), {}, {}, {}, nav = nav, track = track, initialPage = MAP_PAGE) }
         shot("ride-map")
     }
 
     @Test fun rideMapOffRoute() {
         val (nav, track) = navAt(750.0, 120.0, true)
-        compose.setContent { RideScreen(snap, HrState.Connected("Polar H10", 152, true), {}, {}, {}, nav = nav, track = track, initialPage = 1) }
+        compose.setContent { RideScreen(snap, HrState.Connected("Polar H10", 152, true), {}, {}, {}, nav = nav, track = track, initialPage = MAP_PAGE) }
         shot("ride-map-offroute")
+    }
+
+    private fun climbUi(fromRoute: Boolean, finished: Boolean = false): RideController.ClimbUi {
+        val rc = RouteClimb(1, 10_000.0, 18_700.0, 400.0, 1012.0)
+        // A climb averaging 7 %: gradient between 4 and 10 %, integrated every 20 m.
+        fun profile(n: Int): List<Pair<Double, Double>> {
+            var e = 400.0
+            return (0..n).map { i -> (i * 20.0 to e).also { e += 20 * (0.07 + 0.03 * Math.sin(i / 40.0)) } }
+        }
+        val ridden = profile(245)
+        val p = ClimbProgress(
+            fromRoute = if (fromRoute) rc else null, startTimeMs = 0, startDistanceM = 10_000.0, ridden = ridden,
+            elapsedMs = 1_310_000, distanceM = 4_900.0, gainM = 338.0, avgPower = 276.0, avgHr = 164, maxGradePercent = 11.2,
+            finished = finished,
+        )
+        return if (fromRoute) RideController.ClimbUi(
+            progress = p,
+            routeProfile = profile(435),
+            riderOnClimbM = 4_900.0, remainingM = 3_800.0, remainingGainM = 274.0, climbNumber = 2, climbCount = 3,
+        ) else RideController.ClimbUi(progress = p)
+    }
+
+    @Test fun rideClimbOnRoute() {
+        val climbSnap = snap.copy(speedMps = 13.6 / 3.6, hrBpm = 168, hrZone = 4,
+            power = snap.power.copy(power10s = 291.0, gradePercent = 7.8))
+        compose.setContent { RideScreen(climbSnap, HrState.Connected("Polar H10", 168, true), {}, {}, {}, initialPage = CLIMB_PAGE, climb = climbUi(true)) }
+        shot("ride-climb")
+    }
+
+    @Test fun rideClimbLive() {
+        compose.setContent { RideScreen(snap, HrState.Connected("Polar H10", 152, true), {}, {}, {}, initialPage = CLIMB_PAGE, climb = climbUi(false)) }
+        shot("ride-climb-live")
+    }
+
+    @Test fun rideNoClimb() {
+        val next = RouteClimb(2, 30_000.0, 36_100.0, 500.0, 830.0)
+        compose.setContent {
+            RideScreen(snap, HrState.Connected("Polar H10", 152, true), {}, {}, {}, initialPage = CLIMB_PAGE,
+                climb = RideController.ClimbUi(next = next, distanceToNextM = 4_200.0, climbCount = 3))
+        }
+        shot("ride-climb-next")
     }
 
     @Test fun rideOnAWheel() {
@@ -113,7 +158,8 @@ class ScreenshotTest {
     @Test fun summary() {
         val laps = listOf(LapSummary(0, 0, 0, 1_800_000, 15_000.0, 200.0, false, avgHr = 138, avgPower = 182.0), lap3,
             LapSummary(3, 0, 0, 3_243_000, 25_690.0, 400.0, true, avgHr = 147, avgPower = 201.0))
-        compose.setContent { SummaryScreen(FinishedRide(File("x"), snap.copy(status = RideStatus.FINISHED), laps, File("x.fit")), zones, {}, {}) }
+        compose.setContent { SummaryScreen(FinishedRide(File("x"), snap.copy(status = RideStatus.FINISHED), laps, File("x.fit"),
+            climbs = listOf(climbUi(false, finished = true).progress!!, climbUi(true, finished = true).progress!!.copy(distanceM = 8_700.0, gainM = 612.0, elapsedMs = 2_640_000))), zones, {}, {}) }
         shot("summary")
     }
 }

@@ -26,7 +26,16 @@ data class UserSettings(
     val hrDeviceAddress: String? = null,
     val hrDeviceName: String? = null,
     val autoPause: Boolean = true,
+    val climbMinGrade: Double = 3.0,
+    val climbMinLength: Double = 500.0,
+    val climbMinGain: Double = 25.0,
+    val climbAutoSwitch: Boolean = true,
 ) {
+    val climbs: app.painmeter.core.climb.ClimbSettings
+        get() = app.painmeter.core.climb.ClimbSettings(
+            minGradePercent = climbMinGrade, minLengthM = climbMinLength, minGainM = climbMinGain, autoSwitch = climbAutoSwitch,
+        )
+
     val hrZones: HrZones get() = HrZones(hrZoneBounds)
     val power: PowerParams
         get() = PowerParams(riderKg, bikeKg, cda, crr, lossPercent, rhoFallback, draftFactor, windFactor, ftpW)
@@ -65,6 +74,10 @@ object Settings {
             .putBoolean("weather", next.weatherOn)
             .putString("windFactor", next.windFactor.toString())
             .putString("rho", next.rhoFallback.toString())
+            .putString("climbGrade", next.climbMinGrade.toString())
+            .putString("climbLength", next.climbMinLength.toString())
+            .putString("climbGain", next.climbMinGain.toString())
+            .putBoolean("climbSwitch", next.climbAutoSwitch)
             .apply()
     }
 
@@ -90,6 +103,10 @@ object Settings {
             weatherOn = prefs.getBoolean("weather", d.weatherOn),
             windFactor = dbl("windFactor", d.windFactor),
             rhoFallback = dbl("rho", d.rhoFallback),
+            climbMinGrade = dbl("climbGrade", d.climbMinGrade),
+            climbMinLength = dbl("climbLength", d.climbMinLength),
+            climbMinGain = dbl("climbGain", d.climbMinGain),
+            climbAutoSwitch = prefs.getBoolean("climbSwitch", d.climbAutoSwitch),
         )
     }
 

@@ -79,8 +79,14 @@ class MainActivity : ComponentActivity() {
             val settings by Settings.current.collectAsStateWithLifecycle()
             val route by RouteStore.route.collectAsStateWithLifecycle()
             val maps by RouteStore.maps.collectAsStateWithLifecycle()
+            val routeClimbs by RideController.routeClimbs.collectAsStateWithLifecycle()
+            androidx.compose.runtime.LaunchedEffect(route, settings.climbs) { RideController.analyseRoute() }
             val routeInfo = route?.let { r ->
-                RouteInfo(r.name, "${Format.distanceKm(r.lengthM)} km" + (r.gainM?.let { " · ${Math.round(it)} m" } ?: ""))
+                RouteInfo(
+                    r.name,
+                    "${Format.distanceKm(r.lengthM)} km" + (r.gainM?.let { " · ${Math.round(it)} m" } ?: "") +
+                        " · ${routeClimbs.size} climb" + (if (routeClimbs.size == 1) "" else "s"),
+                )
             }
             val current = ride
             val done = finished
@@ -97,6 +103,8 @@ class MainActivity : ComponentActivity() {
                     nav = RideController.nav.collectAsStateWithLifecycle().value,
                     track = RideController.track.collectAsStateWithLifecycle().value,
                     maps = maps,
+                    climb = RideController.climb.collectAsStateWithLifecycle().value,
+                    climbAutoSwitch = settings.climbAutoSwitch,
                 )
                 done != null -> SummaryScreen(done, settings.hrZones, onShare = { shareFit(done) }, onDone = { RideController.closeSummary() })
                 showParameters -> {

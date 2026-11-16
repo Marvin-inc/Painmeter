@@ -72,6 +72,24 @@ fun SummaryScreen(ride: FinishedRide, zones: HrZones, onShare: () -> Unit, onDon
                     }
                 }
             }
+            if (ride.climbs.isNotEmpty()) {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pm.Surface).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text("CLIMBS", color = Pm.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    ride.climbs.forEachIndexed { i, c ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("${i + 1}", color = Pm.Muted, fontSize = 15.sp)
+                            Text("${Format.distanceKm(c.distanceM)} km", color = Pm.Text, fontSize = 15.sp)
+                            Text("${Format.grade(c.avgGradePercent)} %", color = Pm.gradeColor(c.avgGradePercent), fontSize = 15.sp)
+                            Text(Format.duration(c.elapsedMs), color = Pm.Text, fontSize = 15.sp)
+                            Text(c.vamMph?.let { "${Math.round(it)} m/h" } ?: "", color = Pm.Text, fontSize = 15.sp)
+                            Text(c.avgPower?.let { "${Math.round(it)} W" } ?: "", color = Pm.Power, fontSize = 15.sp)
+                        }
+                    }
+                }
+            }
             ride.error?.let { Text(it, color = Pm.Rec, fontSize = 14.sp) }
         }
         Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

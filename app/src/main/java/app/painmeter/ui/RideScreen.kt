@@ -51,6 +51,7 @@ import app.painmeter.RideController
 import app.painmeter.core.RideSnapshot
 import app.painmeter.core.RideStatus
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,6 +70,8 @@ fun RideScreen(
     track: RideController.Track = RideController.Track(emptyList(), null, null),
     maps: List<java.io.File> = emptyList(),
     initialPage: Int = 0,
+    climb: RideController.ClimbUi = RideController.ClimbUi(),
+    climbAutoSwitch: Boolean = true,
 ) {
     val context = LocalContext.current
     val drafting = snap.power.drafting
@@ -141,8 +144,27 @@ fun RideScreen(
                 }
             }
 
-            // Swipe between pages (SPEC §9.1). Climb and Lap pages come in phases 5 and 6.
-            val pager = rememberPagerState(initialPage = initialPage) { 2 }
+            // Swipe between pages (SPEC §9.1): Data, Climb, Map. The Lap page comes in phase 6.
+            val pager = rememberPagerState(initialPage = initialPage) { PAGES }
+            // SPEC §7.4: show the Climb page when a climb starts, go back 10 s after the top.
+            LaunchedEffect(climbAutoSwitch) {
+                if (!climbAutoSwitch) return@LaunchedEffect
+                var before: Int? = null
+                RideController.climbEvents.collect { e ->
+                    when (e) {
+                        RideController.ClimbEvent.STARTED -> if (pager.currentPage != CLIMB_PAGE) {
+                            before = pager.currentPage
+                            pager.animateScrollToPage(CLIMB_PAGE)
+                        }
+                        RideController.ClimbEvent.FINISHED -> launch {
+                            delay(10_000)
+                            val back = before
+                            if (back != null && pager.currentPage == CLIMB_PAGE) pager.animateScrollToPage(back)
+                            before = null
+                        }
+                    }
+                }
+            }
             HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
                 when (page) {
                     0 -> Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -175,10 +197,11 @@ fun RideScreen(
                     DataField("ELEV GAIN · m", Format.metres(snap.elevationGainM), Modifier.weight(1f).fillMaxHeight())
                 }
                                 }
+                    CLIMB_PAGE -> ClimbPage(snap, climb, Modifier.fillMaxSize().padding(10.dp))
                     else -> MapPage(snap, nav, track, maps, Modifier.fillMaxSize().padding(10.dp))
                 }
             }
-            PageDots(pager.currentPage, 2)
+            PageDots(pager.currentPage, PAGES)
 
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(56.dp),
@@ -219,6 +242,10 @@ fun RideScreen(
         }
     }
 }
+
+private const val PAGES = 3
+const val CLIMB_PAGE = 1
+const val MAP_PAGE = 2
 
 @Composable
 private fun PageDots(current: Int, count: Int) {

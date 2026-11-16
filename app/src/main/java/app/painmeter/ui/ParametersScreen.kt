@@ -154,6 +154,16 @@ fun ParametersScreen(
             Section("ELEVATION DATA") {
                 ElevationPanel(elevation, onDownloadElevation, onDeleteElevation)
             }
+            Section("CLIMBS") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DecimalField("Min grade %", settings.climbMinGrade, 1.0..10.0, Modifier.weight(1f)) { onChange(settings.copy(climbMinGrade = it)) }
+                    DecimalField("Min length m", settings.climbMinLength, 100.0..5000.0, Modifier.weight(1f), decimals = 0) { onChange(settings.copy(climbMinLength = it)) }
+                    DecimalField("Min gain m", settings.climbMinGain, 5.0..500.0, Modifier.weight(1f), decimals = 0) { onChange(settings.copy(climbMinGain = it)) }
+                }
+                ToggleRow("Show the Climb page automatically", "When a climb starts; back to the previous page 10 s after the top", settings.climbAutoSwitch) {
+                    onChange(settings.copy(climbAutoSwitch = it))
+                }
+            }
             Section("HEART RATE") {
                 HrZonesEditor(settings, onChange)
             }

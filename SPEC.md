@@ -181,7 +181,8 @@ The flag is recorded per sample.
 
 ### 7.3 Without a route (or off the route)
 - **Live detection**: a climb is **confirmed** when the gradient has stayed ≥ 3 % over the last
-  **150 m** with ≥ **10 m** gained.
+  **150 m** and ≥ **10 m** have been gained since the moved-back start (below). Counting the 10 m
+  over the 150 m window alone would never confirm a climb under 6.7 %.
 - On confirmation, the climb **start is moved back** to the point where the gradient first went
   above 3 % (from the recorded samples). All climb averages (power, VAM, time, speed) are computed
   from that start.
