@@ -20,6 +20,13 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import android.net.Uri
+import app.painmeter.ui.Format
+import app.painmeter.ui.RouteInfo
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import app.painmeter.ui.ElevationPanelState
 import app.painmeter.ui.HomeScreen
 import app.painmeter.ui.ParametersScreen
@@ -43,10 +50,26 @@ class MainActivity : ComponentActivity() {
         HrMonitor.refresh()
     }
 
+    /** Result of the last route or map import, shown in Parameters. */
+    private var importMessage by mutableStateOf<String?>(null)
+
+    private val pickRoute = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { importMessage = RouteStore.importRoute(it) ?: "Route imported" }
+    }
+
+    private val pickMap = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@registerForActivityResult
+        importMessage = "Importing map…"
+        lifecycleScope.launch {
+            importMessage = withContext(Dispatchers.IO) { RouteStore.importMap(uri) } ?: "Map imported"
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         RideController.init(this)
         hasLocation = locationGranted()
+        handleIncoming(intent)
 
         setContent {
             val ride by RideController.ride.collectAsStateWithLifecycle()
@@ -54,6 +77,11 @@ class MainActivity : ComponentActivity() {
             val unfinished by RideController.unfinished.collectAsStateWithLifecycle()
             val hr by HrMonitor.state.collectAsStateWithLifecycle()
             val settings by Settings.current.collectAsStateWithLifecycle()
+            val route by RouteStore.route.collectAsStateWithLifecycle()
+            val maps by RouteStore.maps.collectAsStateWithLifecycle()
+            val routeInfo = route?.let { r ->
+                RouteInfo(r.name, "${Format.distanceKm(r.lengthM)} km" + (r.gainM?.let { " · ${Math.round(it)} m" } ?: ""))
+            }
             val current = ride
             val done = finished
             BackHandler(enabled = showParameters && current == null) { showParameters = false }
@@ -66,6 +94,9 @@ class MainActivity : ComponentActivity() {
                     onLap = { RideController.lap() },
                     onTogglePause = { RideController.togglePause() },
                     onStop = { RideService.stop(this) },
+                    nav = RideController.nav.collectAsStateWithLifecycle().value,
+                    track = RideController.track.collectAsStateWithLifecycle().value,
+                    maps = maps,
                 )
                 done != null -> SummaryScreen(done, settings.hrZones, onShare = { shareFit(done) }, onDone = { RideController.closeSummary() })
                 showParameters -> {
@@ -94,6 +125,16 @@ class MainActivity : ComponentActivity() {
                         ),
                         onDownloadElevation = { here?.let { ElevationStore.downloadAround(it.first, it.second) } },
                         onDeleteElevation = { ElevationStore.deleteAll() },
+                        route = routeInfo,
+                        maps = maps,
+                        message = importMessage,
+                        onImportRoute = { pickRoute.launch(arrayOf("*/*")) },
+                        onClearRoute = { RouteStore.clearRoute(); importMessage = null },
+                        onImportMap = { pickMap.launch(arrayOf("*/*")) },
+                        onDeleteMap = { RouteStore.deleteMap(it) },
+                        onOpenMapDownloads = {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://download.mapsforge.org/maps/v5/")))
+                        },
                     )
                 }
                 else -> {
@@ -105,6 +146,7 @@ class MainActivity : ComponentActivity() {
                         gpsAccuracyM = here?.third,
                         hr = hr,
                         elevationHere = here?.let { tiles.isNotEmpty() && ElevationStore.has(it.first, it.second) },
+                        route = routeInfo,
                         unfinished = unfinished,
                         onStart = { RideService.start(this) },
                         onGrant = { requestPermissions() },
@@ -116,6 +158,27 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (!hasLocation || !HrMonitor.hasPermission()) requestPermissions()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIncoming(intent)
+    }
+
+    /** A .gpx opened or shared from another app becomes the route. */
+    private fun handleIncoming(intent: Intent?) {
+        val uri = when (intent?.action) {
+            Intent.ACTION_VIEW -> intent.data
+            Intent.ACTION_SEND -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            }
+            else -> null
+        } ?: return
+        if (RideController.isActive) return
+        importMessage = RouteStore.importRoute(uri) ?: "Route imported"
+        showParameters = true
     }
 
     override fun onStart() {

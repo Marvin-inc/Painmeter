@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,6 +65,10 @@ fun RideScreen(
     onStop: () -> Unit,
     onDraft: (Boolean) -> Unit = {},
     draftReminder: Boolean = true,
+    nav: RideController.Nav? = null,
+    track: RideController.Track = RideController.Track(emptyList(), null, null),
+    maps: List<java.io.File> = emptyList(),
+    initialPage: Int = 0,
 ) {
     val context = LocalContext.current
     val drafting = snap.power.drafting
@@ -134,10 +141,11 @@ fun RideScreen(
                 }
             }
 
-            Column(
-                Modifier.weight(1f).padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            // Swipe between pages (SPEC §9.1). Climb and Lap pages come in phases 5 and 6.
+            val pager = rememberPagerState(initialPage = initialPage) { 2 }
+            HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
+                when (page) {
+                    0 -> Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val p10 = snap.power.power10s
                 DataField(
                     "POWER 10 s · W", p10?.let { Math.round(it).toString() } ?: "--", Modifier.fillMaxWidth().weight(1.35f),
@@ -166,7 +174,11 @@ fun RideScreen(
                     DataField("DIST · km", Format.distanceKm(snap.distanceM), Modifier.weight(1f).fillMaxHeight())
                     DataField("ELEV GAIN · m", Format.metres(snap.elevationGainM), Modifier.weight(1f).fillMaxHeight())
                 }
+                                }
+                    else -> MapPage(snap, nav, track, maps, Modifier.fillMaxSize().padding(10.dp))
+                }
             }
+            PageDots(pager.currentPage, 2)
 
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(56.dp),
@@ -204,6 +216,22 @@ fun RideScreen(
             ) {
                 Text("LAP $n", color = Color.White, fontFamily = Pm.Numbers, fontWeight = FontWeight.Bold, fontSize = 72.sp)
             }
+        }
+    }
+}
+
+@Composable
+private fun PageDots(current: Int, count: Int) {
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 6.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        repeat(count) { i ->
+            Box(
+                Modifier.padding(horizontal = 4.dp).height(6.dp).width(if (i == current) 18.dp else 6.dp)
+                    .clip(RoundedCornerShape(3.dp)).background(if (i == current) Pm.Text else Color(0xFF4A5260))
+            )
         }
     }
 }

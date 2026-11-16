@@ -46,7 +46,9 @@ RideService (foreground service, keeps running with screen off)
 - Ride logic (session, auto-pause, laps, elevation gain, journal, FIT export), `PowerEngine` and the
   calibration code live in a pure-Kotlin module (`:core`) with no Android dependencies, so they are
   unit-tested on the JVM. FIT files are written with the Garmin FIT SDK (`com.garmin:fit`).
-- Maps: Mapsforge vector maps (offline `.map` files), rendered with `mapsforge-map-android`.
+- Maps: Mapsforge vector maps (offline `.map` files), rendered with `mapsforge-map-android`
+  (0.25) and its "biker" theme. The rider downloads a region's file from download.mapsforge.org on
+  the phone and imports it in Parameters → Maps (several regions can be combined).
 
 ---
 
@@ -269,7 +271,8 @@ Banner clears when back within 30 m. No rerouting.
 - **Drafting**: k_draft for On a wheel (0.65), reminder on/off.
 - **Weather**: on/off, k_wind (0.6), fallback ρ (1.225).
 - **Climbs**: thresholds of §7.1, auto-switch on/off.
-- **Route**: import GPX (file picker / share-to-app), clear route.
+- **Route**: import GPX (file picker, or "open with" / share from another app), clear route.
+- **Maps**: import `.map` files, list, delete, link to the download site.
 - **Sensors**: scan and pair HR strap, forget.
 - **Offline data**: download map and elevation tiles for a region (pick on a world map / list),
   storage used, delete.

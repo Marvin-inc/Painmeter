@@ -31,6 +31,7 @@ fun HomeScreen(
     gpsAccuracyM: Double?,
     hr: HrState,
     elevationHere: Boolean?,
+    route: RouteInfo? = null,
     unfinished: File?,
     onStart: () -> Unit,
     onGrant: () -> Unit,
@@ -70,6 +71,7 @@ fun HomeScreen(
                 null -> "Elevation data: waiting for GPS" to Pm.Muted
             }
             Text(eleText, color = eleColor, fontSize = 16.sp)
+            Text(route?.let { "Route: ${it.name} · ${it.summary}" } ?: "Route: none (free ride)", color = Pm.Muted, fontSize = 15.sp)
         }
 
         if (unfinished != null) {

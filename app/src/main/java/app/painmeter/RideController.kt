@@ -63,12 +63,75 @@ object RideController {
         Settings.init(context)
         HrMonitor.init(context)
         ElevationStore.init(context)
+        RouteStore.init(context)
+        appContext = context.applicationContext
         if (!::store.isInitialized) store = RideStore(context.applicationContext)
         HrMonitor.onReading = { t, bpm -> onHeartRate(t, bpm) }
         refreshUnfinished()
     }
 
     private fun rideSettings() = Settings.current.value.toRideSettings()
+
+    private lateinit var appContext: Context
+
+    // ------------------------------------------------------------ navigation (SPEC §9.5)
+
+    /** Where the rider is on the loaded route; null without a route or before the first fix. */
+    data class Nav(val state: app.painmeter.core.route.NavState, val route: app.painmeter.core.route.Route)
+
+    private val _nav = MutableStateFlow<Nav?>(null)
+    val nav: StateFlow<Nav?> = _nav
+
+    /** The ridden track (one point every 10 m or so) and the current heading, for the map. */
+    data class Track(val points: List<Pair<Double, Double>>, val bearingDeg: Double?, val position: Pair<Double, Double>?)
+
+    private val _track = MutableStateFlow(Track(emptyList(), null, null))
+    val track: StateFlow<Track> = _track
+
+    private var follower: app.painmeter.core.route.RouteFollower? = null
+    private var turnWarned: Double? = null
+
+    private fun updateNav(fix: Fix) {
+        // Track and heading.
+        val t = _track.value
+        val last = t.points.lastOrNull()
+        if (last == null || app.painmeter.core.Geo.distanceM(last.first, last.second, fix.lat, fix.lon) >= 10) {
+            val bearing = last?.let {
+                app.painmeter.core.route.Route.bearing(
+                    app.painmeter.core.route.RoutePoint(it.first, it.second), app.painmeter.core.route.RoutePoint(fix.lat, fix.lon),
+                )
+            } ?: t.bearingDeg
+            _track.value = Track(t.points + (fix.lat to fix.lon), bearing, fix.lat to fix.lon)
+        } else {
+            _track.value = t.copy(position = fix.lat to fix.lon)
+        }
+
+        // Route.
+        val route = RouteStore.route.value
+        if (route == null) { follower = null; _nav.value = null; return }
+        val f = follower?.takeIf { it.route === route } ?: app.painmeter.core.route.RouteFollower(route).also { follower = it }
+        val before = _nav.value?.state
+        val st = f.update(fix.timeMs, fix.lat, fix.lon)
+        _nav.value = Nav(st, route)
+        if (st.offRoute && before?.offRoute != true) vibrate(700)
+        val turn = st.nextTurn
+        val dist = st.distanceToTurnM
+        if (!st.offRoute && turn != null && dist != null && dist <= 100 && turnWarned != turn.distanceM) {
+            turnWarned = turn.distanceM
+            vibrate(150); scope.launch { kotlinx.coroutines.delay(300); vibrate(150) }
+        }
+    }
+
+    private fun vibrate(ms: Long) {
+        if (!::appContext.isInitialized) return
+        val v = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            appContext.getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            appContext.getSystemService(android.os.Vibrator::class.java)
+        }
+        v?.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+    }
 
     fun refreshUnfinished() {
         _unfinished.value = if (isActive) null else store.unfinished().firstOrNull()
@@ -82,6 +145,10 @@ object RideController {
         open(dir, RideSession(rideSettings()))
         record(session!!.start(nowMs))
         weatherAt = null
+        follower = null
+        turnWarned = null
+        _nav.value = null
+        _track.value = Track(emptyList(), null, null)
         _weather.value = null
         _finished.value = null
         publish(nowMs)
@@ -114,6 +181,7 @@ object RideController {
         val s = session ?: return
         val fix = raw.copy(demAltitudeM = ElevationStore.elevation(raw.lat, raw.lon))
         record(s.onFix(fix))
+        updateNav(fix)
         maybeRefreshWeather(fix)
         publish(System.currentTimeMillis())
     }

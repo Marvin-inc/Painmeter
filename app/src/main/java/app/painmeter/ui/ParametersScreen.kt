@@ -52,6 +52,14 @@ fun ParametersScreen(
     elevation: ElevationPanelState = ElevationPanelState(),
     onDownloadElevation: () -> Unit = {},
     onDeleteElevation: () -> Unit = {},
+    route: RouteInfo? = null,
+    maps: List<java.io.File> = emptyList(),
+    message: String? = null,
+    onImportRoute: () -> Unit = {},
+    onClearRoute: () -> Unit = {},
+    onImportMap: () -> Unit = {},
+    onDeleteMap: (java.io.File) -> Unit = {},
+    onOpenMapDownloads: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(Pm.Background)) {
         Row(
@@ -71,6 +79,46 @@ fun ParametersScreen(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            message?.let { Text(it, color = Pm.Amber, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+            Section("ROUTE") {
+                if (route == null) {
+                    Text("No route: the map shows only your track.", color = Pm.Muted, fontSize = 15.sp)
+                } else {
+                    Text(route.name, color = Pm.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text(route.summary, color = Pm.Muted, fontSize = 14.sp)
+                }
+                Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BigButton("IMPORT GPX", Modifier.weight(1.4f), Pm.Blue, Color.White, onClick = onImportRoute)
+                    if (route != null) BigButton("CLEAR", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onClearRoute)
+                }
+                Text("Or open a .gpx from Komoot, Strava, Files… with Painmeter.", color = Pm.Muted, fontSize = 13.sp)
+            }
+            Section("MAPS") {
+                if (maps.isEmpty()) {
+                    Text("No offline map yet.", color = Pm.Amber, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                } else {
+                    maps.forEach { f ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(f.name.removeSuffix(".map"), color = Pm.Text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                            Text("${f.length() / 1_000_000} MB", color = Pm.Muted, fontSize = 13.sp, modifier = Modifier.padding(end = 8.dp))
+                            Box(
+                                Modifier.height(40.dp).clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Delete ${f.name}") { onDeleteMap(f) }
+                                    .padding(horizontal = 10.dp),
+                                contentAlignment = Alignment.Center,
+                            ) { Text("Delete", color = Pm.Rec, fontSize = 14.sp) }
+                        }
+                    }
+                }
+                Text(
+                    "1. Download your region's .map file (Mapsforge format, e.g. europe/france/rhone-alpes.map) on the phone.\n" +
+                        "2. Import it here.",
+                    color = Pm.Muted, fontSize = 13.sp,
+                )
+                Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BigButton("GET MAPS", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onOpenMapDownloads)
+                    BigButton("IMPORT .MAP", Modifier.weight(1f), Pm.Blue, Color.White, onClick = onImportMap)
+                }
+            }
             Section("RIDER") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DecimalField("Weight kg", settings.riderKg, 30.0..200.0, Modifier.weight(1f)) { onChange(settings.copy(riderKg = it)) }
@@ -320,3 +368,6 @@ private fun DecimalField(
         ),
     )
 }
+
+/** Route shown in Parameters and on Home. */
+data class RouteInfo(val name: String, val summary: String)

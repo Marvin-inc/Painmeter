@@ -7,8 +7,13 @@ import app.painmeter.core.LapSummary
 import app.painmeter.core.RideSnapshot
 import app.painmeter.core.RideStatus
 import app.painmeter.core.power.PowerState
+import app.painmeter.core.route.NavState
+import app.painmeter.core.route.Route
+import app.painmeter.core.route.RoutePoint
+import app.painmeter.core.route.TurnDetector
 import app.painmeter.ui.ElevationPanelState
 import app.painmeter.ui.HomeScreen
+import app.painmeter.ui.RouteInfo
 import app.painmeter.ui.ParametersScreen
 import app.painmeter.ui.RideScreen
 import app.painmeter.ui.SummaryScreen
@@ -48,6 +53,32 @@ class ScreenshotTest {
         shot("ride")
     }
 
+    /** A route north 1 km then east 1 km, rider 750 m along it. */
+    private fun navAt(alongM: Double, offsetM: Double, offRoute: Boolean): Pair<RideController.Nav, RideController.Track> {
+        val pts = mutableListOf<RoutePoint>()
+        var lat = 45.18; var lon = 5.72
+        repeat(100) { lat += 10 / 111_195.0; pts += RoutePoint(lat, lon) }
+        repeat(100) { lon += 10 / (111_195.0 * Math.cos(Math.toRadians(lat))); pts += RoutePoint(lat, lon) }
+        val route = Route("Vercors loop", pts)
+        val turns = TurnDetector.find(route)
+        val st = NavState(alongM, offsetM, route.lengthM - alongM, offRoute, turns.first(), turns.first().distanceM - alongM)
+        val p = route.pointAt(alongM)
+        val track = (0..75).map { route.pointAt(it * 10.0).let { q -> q.lat to q.lon } }
+        return RideController.Nav(st, route) to RideController.Track(track, 0.0, p.lat to p.lon)
+    }
+
+    @Test fun rideMapNextTurn() {
+        val (nav, track) = navAt(750.0, 4.0, false)
+        compose.setContent { RideScreen(snap, HrState.Connected("Polar H10", 152, true), {}, {}, {}, nav = nav, track = track, initialPage = 1) }
+        shot("ride-map")
+    }
+
+    @Test fun rideMapOffRoute() {
+        val (nav, track) = navAt(750.0, 120.0, true)
+        compose.setContent { RideScreen(snap, HrState.Connected("Polar H10", 152, true), {}, {}, {}, nav = nav, track = track, initialPage = 1) }
+        shot("ride-map-offroute")
+    }
+
     @Test fun rideOnAWheel() {
         compose.setContent {
             RideScreen(snap.copy(power = snap.power.copy(drafting = true, reliable = false, power10s = 171.0, gradePercent = -0.4)),
@@ -62,7 +93,7 @@ class ScreenshotTest {
     }
 
     @Test fun home() {
-        compose.setContent { HomeScreen(true, 4.0, HrState.Connected("Polar H10", 64, true), true, File("20261116-084512"), {}, {}, {}, {}, {}) }
+        compose.setContent { HomeScreen(true, 4.0, HrState.Connected("Polar H10", 64, true), true, RouteInfo("Vercors loop", "82.4 km · 1450 m"), File("20261116-084512"), {}, {}, {}, {}, {}) }
         shot("home")
     }
 
