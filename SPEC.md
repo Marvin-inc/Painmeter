@@ -102,10 +102,10 @@ v_air = v + w_head        w_head = k_wind · wind_10m · cos(wind_from − beari
 | ρ | Open-Meteo temperature, pressure, humidity → same `airDensity()` as the web tool; fallback = Parameters value |
 | wind | Open-Meteo `wind_speed_10m` / `wind_direction_10m`, current hour |
 | m | rider + bike weight |
-| m_eff | m + 1.5 kg (rotating wheels) — **same value as the calibration**; the web tool uses m in the ride model and m + 1.5 in the calibration, to align |
+| m_eff | m + 1.5 kg (rotating wheels), same value as the calibration (web tool aligned, branch `claude/zen-pascal-vwu1j5`) |
 | CdA, Crr, η | Parameters |
 | k_draft | 1.0 when **Solo**, 0.65 (editable) when **On a wheel** |
-| k_wind | 0.6 by default (editable). Wind at rider height (~1.2 m) is weaker than the 10 m forecast value; a log wind profile over open country gives about 0.6. The web tool currently uses the 10 m value as is (k = 1). |
+| k_wind | 0.6 by default (editable). Wind at rider height (~1.2 m) is weaker than the 10 m forecast value; a log wind profile over open country gives about 0.6. Web tool updated to the same factor. |
 
 ### 5.1 Windowed power by energy balance
 Displayed averages are computed over the window as energy / time, not as a mean of noisy
@@ -212,34 +212,36 @@ Each climb is stored with: start / end distance, length, gain, avg gradient, max
 - **Draft toggle** (bottom, large).
 - Dark theme by default, high contrast, large figures. Light theme option for strong sun.
 - Screen kept on while recording. Brightness: system.
-- HR zone shown as a number **and** as the colour of the HR field.
+- **HR field (used everywhere)**: one field showing bpm and zone together ("171 Z4", zone in a
+  smaller size), figures in the zone colour and a zone-coloured bar along the bottom edge. There is
+  no separate HR-zone field. Same pattern for average HR ("164 Z4").
 
 ### 9.2 Data
 3 × 3 grid, power and speed in larger cells:
 
 | | | |
 |---|---|---|
-| **Power 10 s** (W) | **Speed** (km/h) | **HR** (bpm, zone colour) |
-| HR zone | Gradient (%) | Avg speed |
+| **Power 10 s** (W), full width | | |
+| **Speed** (km/h) | **HR + zone** | |
+| Clock | Gradient (%) | Avg speed |
 | Ride time | Distance | Elevation gain |
 
-Changes from the original list: **clock replaced by current gradient** (time of day is in the
-Android status bar). Optional extra fields to swap in: 30 s power, wind (head/tail, km/h),
-clock, NP.
+Merging HR and HR zone into one field frees a cell, used for the clock; current gradient is added.
+Optional extra fields to swap in: 30 s power, wind (head/tail, km/h), NP.
 
 ### 9.3 Climb
 - Top half: **profile** coloured by gradient (5 bands: <3, 3–6, 6–9, 9–12, >12 %), rider marker.
   With a route: whole climb. Without: climbed so far.
-- Fields: **Gradient** · **Speed** · **VAM** (climb average, m/h) · **Power 10 s** ·
-  **Avg power since climb start** · **HR** + zone.
+- Fields: **Power 10 s** · **Avg power since climb start** · **Gradient** · **Speed** ·
+  **VAM** (climb average, m/h) · **HR + zone**.
 - With a route only: **distance remaining**, **elevation remaining**, avg gradient remaining.
 - When not climbing: next climb on the route (distance to it, length, gradient), or "No climb".
 
 ### 9.4 Lap
 - Large **LAP** button.
-- Current lap: **Lap time** · **Speed** · **Power 10 s** · **%FTP (10 s)** · **HR** + zone ·
-  **Avg power** · **Avg %FTP** · **Avg HR** · **Avg HR zone** (= zone of the average HR).
-- Strip at the bottom: **last lap** — time, avg power, avg %FTP, avg HR.
+- Current lap: **Lap time** · **Power 10 s** · **%FTP (10 s)** · **Speed** · **HR + zone** ·
+  **Avg power** · **Avg %FTP** · **Avg HR + zone** (zone of the average HR).
+- Strip at the bottom: **last lap** — time, avg power, avg %FTP, avg HR + zone.
 
 ### 9.5 Map
 - Offline Mapsforge map, heading-up, zoom kept between rides.
