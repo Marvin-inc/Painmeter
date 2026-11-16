@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.os.Looper
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -35,11 +34,6 @@ import app.painmeter.ui.HomeScreen
 import app.painmeter.ui.ParametersScreen
 import app.painmeter.ui.RideScreen
 import app.painmeter.ui.SummaryScreen
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 
 class MainActivity : ComponentActivity() {
 
@@ -289,22 +283,20 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(send, "Share FIT file"))
     }
 
-    /** Listens to GPS while the home screen is shown, so the rider sees when the fix is ready. */
-    @SuppressLint("MissingPermission")
+    /**
+     * Listens to the location source chosen in Parameters while the home screen is shown, so the
+     * rider sees when the fix is ready (and the raw GPS chip is already warm at the start).
+     */
     @androidx.compose.runtime.Composable
     private fun GpsPreview(enabled: Boolean, onPosition: (Triple<Double, Double, Double?>) -> Unit) {
-        DisposableEffect(enabled) {
+        val raw = Settings.current.collectAsStateWithLifecycle().value.rawGps
+        DisposableEffect(enabled, raw) {
             if (!enabled) return@DisposableEffect onDispose { }
-            val client = LocationServices.getFusedLocationProviderClient(this@MainActivity)
-            val callback = object : LocationCallback() {
-                override fun onLocationResult(result: LocationResult) {
-                    result.lastLocation?.let { onPosition(Triple(it.latitude, it.longitude, if (it.hasAccuracy()) it.accuracy.toDouble() else null)) }
-                }
+            val feed = LocationFeed(this@MainActivity) {
+                onPosition(Triple(it.latitude, it.longitude, if (it.hasAccuracy()) it.accuracy.toDouble() else null))
             }
-            client.requestLocationUpdates(
-                LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000).build(), callback, Looper.getMainLooper()
-            )
-            onDispose { client.removeLocationUpdates(callback) }
+            feed.start(raw)
+            onDispose { feed.stop() }
         }
     }
 }

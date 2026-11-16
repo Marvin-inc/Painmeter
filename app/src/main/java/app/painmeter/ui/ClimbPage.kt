@@ -90,8 +90,8 @@ fun ClimbPage(snap: RideSnapshot, climb: RideController.ClimbUi, modifier: Modif
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DataField(
-                    "POWER 10 s · W", Format.watts(snap.power.power10s), Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp,
-                    valueColor = if (snap.power.power10s == null) Pm.Disabled else if (snap.power.reliable) Pm.Power else Pm.Uncertain,
+                    "POWER ${snap.power.windowS} s · W", Format.watts(snap.power.powerShort), Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp,
+                    valueColor = if (snap.power.powerShort == null) Pm.Disabled else if (snap.power.reliable) Pm.Power else Pm.Uncertain,
                 )
                 DataField(
                     if (p?.finished == true) "CLIMB AVG · W" else "AVG CLIMB · W", Format.watts(p?.avgPower),

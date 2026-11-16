@@ -33,6 +33,12 @@ data class UserSettings(
     /** Last calibration applied: when, and the uncertainty of CdA and Crr. */
     /** Download a missing elevation tile during the ride (about 10–25 MB, may use mobile data). */
     val autoElevation: Boolean = true,
+    /** Power averaging on screen, seconds. */
+    val powerWindowS: Int = 10,
+    /** Raw GPS chip (less lag, slower first fix) instead of Google's location service. */
+    val rawGps: Boolean = false,
+    /** Turn the map with the phone's compass when stopped or very slow. */
+    val compassWhenStopped: Boolean = true,
     val calibDateMs: Long? = null,
     val calibSeCda: Double? = null,
     val calibSeCrr: Double? = null,
@@ -44,7 +50,7 @@ data class UserSettings(
 
     val hrZones: HrZones get() = HrZones(hrZoneBounds)
     val power: PowerParams
-        get() = PowerParams(riderKg, bikeKg, cda, crr, lossPercent, rhoFallback, draftFactor, windFactor, ftpW)
+        get() = PowerParams(riderKg, bikeKg, cda, crr, lossPercent, rhoFallback, draftFactor, windFactor, ftpW, powerWindowS)
 
     fun toRideSettings() = RideSettings(autoPause = autoPause, hrZones = hrZones, power = power)
 }
@@ -85,6 +91,9 @@ object Settings {
             .putString("climbGain", next.climbMinGain.toString())
             .putBoolean("climbSwitch", next.climbAutoSwitch)
             .putBoolean("autoElevation", next.autoElevation)
+            .putInt("powerWindow", next.powerWindowS)
+            .putBoolean("rawGps", next.rawGps)
+            .putBoolean("compass", next.compassWhenStopped)
             .putLong("calibDate", next.calibDateMs ?: -1)
             .putString("calibSeCda", next.calibSeCda?.toString())
             .putString("calibSeCrr", next.calibSeCrr?.toString())
@@ -118,6 +127,9 @@ object Settings {
             climbMinGain = dbl("climbGain", d.climbMinGain),
             climbAutoSwitch = prefs.getBoolean("climbSwitch", d.climbAutoSwitch),
             autoElevation = prefs.getBoolean("autoElevation", d.autoElevation),
+            powerWindowS = prefs.getInt("powerWindow", d.powerWindowS).takeIf { it in listOf(3, 5, 10, 20, 30) } ?: d.powerWindowS,
+            rawGps = prefs.getBoolean("rawGps", d.rawGps),
+            compassWhenStopped = prefs.getBoolean("compass", d.compassWhenStopped),
             calibDateMs = prefs.getLong("calibDate", -1).takeIf { it > 0 },
             calibSeCda = prefs.getString("calibSeCda", null)?.toDoubleOrNull(),
             calibSeCrr = prefs.getString("calibSeCrr", null)?.toDoubleOrNull(),

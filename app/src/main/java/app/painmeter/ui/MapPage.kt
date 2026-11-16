@@ -121,7 +121,7 @@ fun MapPage(
             )
             DataField("SPEED", Format.speedKmh(snap.speedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp)
             DataField(
-                "POWER 10 s", Format.watts(snap.power.power10s), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp,
+                "POWER ${snap.power.windowS} s", Format.watts(snap.power.powerShort), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp,
                 valueColor = if (snap.power.reliable) Pm.Power else Pm.Uncertain,
             )
         }
@@ -193,6 +193,18 @@ private fun MapsforgeMap(maps: List<File>, nav: RideController.Nav?, track: Ride
     val holder = remember { MapHolder(context) }
     DisposableEffect(Unit) { onDispose { holder.destroy() } }
 
+    // Glide to each new heading over half a second, always the short way round (350° → 10° turns
+    // 20°, not 340°). The animated value is unbounded; only its angle matters.
+    val turn = remember { androidx.compose.animation.core.Animatable((track.bearingDeg ?: 0.0).toFloat()) }
+    androidx.compose.runtime.LaunchedEffect(track.bearingDeg) {
+        val target = (track.bearingDeg ?: return@LaunchedEffect).toFloat()
+        var delta = (target - turn.value) % 360f
+        if (delta > 180f) delta -= 360f
+        if (delta < -180f) delta += 360f
+        turn.animateTo(turn.value + delta, androidx.compose.animation.core.tween(500))
+    }
+    val heading = turn.value
+
     Box(modifier) {
         AndroidView(factory = { holder.view }, modifier = Modifier.fillMaxSize(), update = { v ->
             holder.setMaps(maps)
@@ -202,7 +214,7 @@ private fun MapsforgeMap(maps: List<File>, nav: RideController.Nav?, track: Ride
             v.model.mapViewPosition.zoomLevel = zoom.toByte()
             val w = v.width.toFloat()
             val h = v.height.toFloat()
-            if (w > 0 && h > 0) v.rotate(Rotation(-(track.bearingDeg ?: 0.0).toFloat(), w / 2, h / 2))
+            if (w > 0 && h > 0) v.rotate(Rotation(-heading, w / 2, h / 2))
         })
         // Catches touches so swipes go to the pages, not to the map (it follows the rider anyway).
         Box(Modifier.fillMaxSize().pointerInput(Unit) { })
@@ -211,7 +223,7 @@ private fun MapsforgeMap(maps: List<File>, nav: RideController.Nav?, track: Ride
             ZoomButton("−", "Zoom out") { zoom = (zoom - 1).coerceAtLeast(10); MapPrefs.setZoom(context, zoom) }
         }
         Text(
-            "N ${String.format(Locale.ROOT, "%.0f", track.bearingDeg ?: 0.0)}° · heading up",
+            "N ${String.format(Locale.ROOT, "%.0f", ((heading % 360) + 360) % 360)}° · heading up",
             color = Pm.Muted, fontSize = 12.sp,
             modifier = Modifier.align(Alignment.TopStart).padding(10.dp).clip(RoundedCornerShape(8.dp))
                 .background(Color(0xCC14181E)).padding(horizontal = 8.dp, vertical = 4.dp),

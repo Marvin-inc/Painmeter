@@ -173,9 +173,9 @@ fun RideScreen(
             } else HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
                 when (page) {
                     0 -> Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                val p10 = snap.power.power10s
+                val p10 = snap.power.powerShort
                 DataField(
-                    "POWER 10 s · W", p10?.let { Math.round(it).toString() } ?: "--", Modifier.fillMaxWidth().weight(1.35f),
+                    "POWER ${snap.power.windowS} s · W", p10?.let { Math.round(it).toString() } ?: "--", Modifier.fillMaxWidth().weight(1.35f),
                     valueSize = 150.sp,
                     valueColor = when {
                         p10 == null -> Pm.Disabled

@@ -51,7 +51,7 @@ class ScreenshotTest {
         lastLap = lap3, gpsAccuracyM = 4.0, gpsAgeMs = 400,
         hrBpm = 152, hrZone = 3, avgHr = 146, maxHr = 178, lapAvgHr = 150,
         hrZoneMs = listOf(600_000L, 1_500_000L, 2_100_000L, 900_000L, 183_000L),
-        power = PowerState(power10s = 238.0, power30s = 231.0, power1Hz = 240.0, gradePercent = 4.2, reliable = true),
+        power = PowerState(power10s = 238.0, powerShort = 238.0, power30s = 231.0, power1Hz = 240.0, gradePercent = 4.2, reliable = true),
         avgPower = 196.0, maxPower = 612.0, normalizedPower = 221.0, lapAvgPower = 214.0,
     )
 
@@ -110,7 +110,7 @@ class ScreenshotTest {
 
     @Test fun rideClimbOnRoute() {
         val climbSnap = snap.copy(speedMps = 13.6 / 3.6, hrBpm = 168, hrZone = 4,
-            power = snap.power.copy(power10s = 291.0, gradePercent = 7.8))
+            power = snap.power.copy(power10s = 291.0, powerShort = 291.0, gradePercent = 7.8))
         compose.setContent { RideScreen(climbSnap, HrState.Connected("Polar H10", 168, true), {}, {}, {}, initialPage = CLIMB_PAGE, climb = climbUi(true)) }
         shot("ride-climb")
     }
@@ -131,7 +131,7 @@ class ScreenshotTest {
 
     @Test fun ridePageLap() {
         val s = snap.copy(lapNumber = 4, lapTimeMs = 222_000, lapAvgPower = 298.0, lapAvgHr = 164, ftpW = 280,
-            power = snap.power.copy(power10s = 305.0), speedMps = 36.2 / 3.6, hrBpm = 171, hrZone = 4,
+            power = snap.power.copy(power10s = 305.0, powerShort = 305.0), speedMps = 36.2 / 3.6, hrBpm = 171, hrZone = 4,
             lastLap = LapSummary(2, 0, 0, 240_000, 2010.0, 12.0, false, avgHr = 158, avgPower = 291.0))
         compose.setContent { RideScreen(s, HrState.Connected("Polar H10", 171, true), {}, {}, {}, initialPage = LAP_PAGE, zones = zones) }
         shot("ride-lap")
@@ -177,7 +177,7 @@ class ScreenshotTest {
 
     @Test fun rideOnAWheel() {
         compose.setContent {
-            RideScreen(snap.copy(power = snap.power.copy(drafting = true, reliable = false, power10s = 171.0, gradePercent = -0.4)),
+            RideScreen(snap.copy(power = snap.power.copy(drafting = true, reliable = false, power10s = 171.0, powerShort = 171.0, gradePercent = -0.4)),
                 HrState.Connected("Polar H10", 152, true), {}, {}, {})
         }
         shot("ride-wheel")

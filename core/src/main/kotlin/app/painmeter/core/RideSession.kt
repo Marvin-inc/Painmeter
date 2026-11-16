@@ -367,7 +367,7 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             maxHr = rideHr.max,
             lapAvgHr = lapHr.average,
             hrZoneMs = rideHr.zoneMs.toList(),
-            power = if (status == RideStatus.RECORDING) engine.state else engine.state.copy(power10s = null, power30s = null, power1Hz = null),
+            power = if (status == RideStatus.RECORDING) engine.state else engine.state.copy(power10s = null, power30s = null, power1Hz = null, powerShort = null),
             avgPower = ridePower.average,
             maxPower = ridePower.max.takeIf { ridePower.average != null },
             normalizedPower = ridePower.normalized,

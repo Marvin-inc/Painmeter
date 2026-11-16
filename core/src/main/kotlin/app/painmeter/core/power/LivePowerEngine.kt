@@ -21,6 +21,8 @@ data class PowerParams(
     /** Forecast (10 m) wind to rider-height wind. */
     val windFactor: Double = Physics.DEFAULT_WIND_HEIGHT_FACTOR,
     val ftpW: Int = 250,
+    /** Averaging of the power shown on screen, seconds (3, 5, 10, 20 or 30). */
+    val displayWindowS: Int = 10,
 ) {
     val massKg: Double get() = riderKg + bikeKg
     val efficiency: Double get() = 1 - drivetrainLossPercent / 100
@@ -55,6 +57,9 @@ data class PowerInput(
 /** The engine's view after the latest second. Power values are watts at the pedals, ≥ 0. */
 data class PowerState(
     val power10s: Double? = null,
+    /** Power over the window chosen in Parameters ([windowS] seconds): what the screens show. */
+    val powerShort: Double? = null,
+    val windowS: Int = 10,
     val power30s: Double? = null,
     /** The 1 Hz value written to the FIT file (5 s trailing window). */
     val power1Hz: Double? = null,
@@ -92,7 +97,7 @@ class LivePowerEngine(private val params: PowerParams) {
     var drafting = false
         private set
 
-    var state = PowerState(rho = params.rhoFallback)
+    var state = PowerState(rho = params.rhoFallback, windowS = params.displayWindowS)
         private set
 
     fun setWeather(w: WeatherNow?) { weather = w }
@@ -105,7 +110,7 @@ class LivePowerEngine(private val params: PowerParams) {
         lastInput = null
         filteredSpeed = null
         bearingFrom = null
-        state = state.copy(power10s = null, power30s = null, power1Hz = null)
+        state = state.copy(power10s = null, power30s = null, power1Hz = null, powerShort = null)
     }
 
     fun onInput(input: PowerInput): PowerState {
@@ -165,6 +170,8 @@ class LivePowerEngine(private val params: PowerParams) {
             v >= 5 / 3.6
         state = PowerState(
             power10s = window(10_000),
+            powerShort = window(params.displayWindowS * 1000L),
+            windowS = params.displayWindowS,
             power30s = window(30_000),
             power1Hz = window(5_000),
             gradePercent = grade * 100,

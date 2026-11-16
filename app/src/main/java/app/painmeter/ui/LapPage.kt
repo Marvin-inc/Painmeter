@@ -27,7 +27,7 @@ import app.painmeter.core.RideSnapshot
 fun LapPage(snap: RideSnapshot, zones: HrZones?, onLap: () -> Unit, modifier: Modifier = Modifier) {
     val ftp = snap.ftpW.coerceAtLeast(1)
     fun pct(w: Double?) = w?.let { Math.round(it / ftp * 100).toString() } ?: "--"
-    val powerColor = if (snap.power.power10s == null) Pm.Disabled else if (snap.power.reliable) Pm.Power else Pm.Uncertain
+    val powerColor = if (snap.power.powerShort == null) Pm.Disabled else if (snap.power.reliable) Pm.Power else Pm.Uncertain
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -38,8 +38,8 @@ fun LapPage(snap: RideSnapshot, zones: HrZones?, onLap: () -> Unit, modifier: Mo
         Label("NOW")
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DataField("POWER 10 s · W", Format.watts(snap.power.power10s), Modifier.weight(1f).fillMaxHeight(), valueSize = 72.sp, valueColor = powerColor)
-                DataField("% FTP · 10 s", pct(snap.power.power10s), Modifier.weight(1f).fillMaxHeight(), valueSize = 72.sp, valueColor = powerColor)
+                DataField("POWER ${snap.power.windowS} s · W", Format.watts(snap.power.powerShort), Modifier.weight(1f).fillMaxHeight(), valueSize = 72.sp, valueColor = powerColor)
+                DataField("% FTP · ${snap.power.windowS} s", pct(snap.power.powerShort), Modifier.weight(1f).fillMaxHeight(), valueSize = 72.sp, valueColor = powerColor)
             }
             Row(Modifier.fillMaxWidth().weight(0.8f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DataField("SPEED · km/h", Format.speedKmh(snap.speedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 56.sp)

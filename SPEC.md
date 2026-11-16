@@ -284,7 +284,11 @@ Banner clears when back within 30 m. No rerouting.
 - **Sensors**: scan and pair HR strap, forget.
 - **Offline data**: download map and elevation tiles for a region (pick on a world map / list),
   storage used, delete.
-- **Display**: page order, light/dark, optional data fields.
+- **Display & location**: power averaging on screen (3 / 5 / 10 / 20 / 30 s, default 10 s; 3 s
+  with a noise warning; the FIT keeps its 5 s value), location source (Google's location service:
+  fast first fix, about 1 s more lag; or the raw GPS chip: less lag, slower first fix), compass
+  when stopped (on by default).
+- **Display** (phase 7): page order, light/dark, optional data fields.
 - **Recording**: auto-pause on/off, FIT export folder.
 
 ### 9.7 Calibration (not during a normal ride)

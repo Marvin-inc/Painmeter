@@ -60,7 +60,15 @@ object RideController {
 
     val isActive: Boolean get() = session?.status.let { it == RideStatus.RECORDING || it == RideStatus.PAUSED }
 
+    private var compassJob: kotlinx.coroutines.Job? = null
+
     fun init(context: Context) {
+        // When stopped, the compass turns the map between GPS positions too.
+        if (compassJob == null) compassJob = scope.launch {
+            Compass.heading.collect { h ->
+                if (h != null && compassMode && session != null) _track.value = _track.value.copy(bearingDeg = h.toDouble())
+            }
+        }
         Settings.init(context)
         HrMonitor.init(context)
         ElevationStore.init(context)
@@ -96,19 +104,49 @@ object RideController {
     private var follower: app.painmeter.core.route.RouteFollower? = null
     private var turnWarned: Double? = null
 
+    // Map heading: the GPS course when moving, the compass when stopped or very slow (below
+    // 4 km/h; back to GPS above 6 km/h, so it does not flicker between the two).
+    private var compassMode = true
+    private var courseDeg: Double? = null
+
+    /** A position from the location feed, with the GPS course when the chip gives one. */
+    fun onLocation(loc: android.location.Location) {
+        if (Compass.declinationDeg == 0f) {
+            Compass.declinationDeg = android.hardware.GeomagneticField(
+                loc.latitude.toFloat(), loc.longitude.toFloat(), loc.altitude.toFloat(), loc.time,
+            ).declination
+        }
+        val speed = if (loc.hasSpeed()) loc.speed.toDouble() else null
+        if (speed != null) {
+            if (speed < 4 / 3.6) compassMode = true
+            if (speed > 6 / 3.6) compassMode = false
+        }
+        courseDeg = if (loc.hasBearing() && (speed ?: 0.0) > 1.5) loc.bearing.toDouble() else null
+        onFix(loc.toFix())
+    }
+
+    private fun currentHeading(pointBearing: Double?): Double? {
+        val compass = Compass.heading.value?.toDouble()
+        return when {
+            compassMode && compass != null -> compass
+            courseDeg != null -> courseDeg
+            else -> pointBearing ?: _track.value.bearingDeg
+        }
+    }
+
     private fun updateNav(fix: Fix) {
         // Track and heading.
         val t = _track.value
         val last = t.points.lastOrNull()
         if (last == null || app.painmeter.core.Geo.distanceM(last.first, last.second, fix.lat, fix.lon) >= 10) {
-            val bearing = last?.let {
+            val pointBearing = last?.let {
                 app.painmeter.core.route.Route.bearing(
                     app.painmeter.core.route.RoutePoint(it.first, it.second), app.painmeter.core.route.RoutePoint(fix.lat, fix.lon),
                 )
-            } ?: t.bearingDeg
-            _track.value = Track(t.points + (fix.lat to fix.lon), bearing, fix.lat to fix.lon)
+            }
+            _track.value = Track(t.points + (fix.lat to fix.lon), currentHeading(pointBearing), fix.lat to fix.lon)
         } else {
-            _track.value = t.copy(position = fix.lat to fix.lon)
+            _track.value = t.copy(position = fix.lat to fix.lon, bearingDeg = currentHeading(null))
         }
 
         // Route.
@@ -225,6 +263,8 @@ object RideController {
         open(dir, RideSession(rideSettings()))
         record(session!!.start(nowMs))
         terrainGrade = newTerrainGrade()
+        compassMode = true
+        courseDeg = null
         detector = app.painmeter.core.climb.LiveClimbDetector(Settings.current.value.climbs)
         finishedClimb = null
         _climb.value = ClimbUi()

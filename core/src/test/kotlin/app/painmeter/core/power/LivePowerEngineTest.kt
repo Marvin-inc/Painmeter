@@ -82,6 +82,16 @@ class LivePowerEngineTest {
     }
 
     @Test
+    fun displayWindowFollowsTheSetting() {
+        for (w in listOf(3, 5, 20, 30)) {
+            val states = run(LivePowerEngine(params.copy(displayWindowS = w)), 40) { 9.0 }
+            assertNull(states[w - 2].powerShort, "window $w")
+            assertEquals(expected(9.0, 0.0), states.last().powerShort!!, 0.5, "window $w")
+            assertEquals(w, states.last().windowS)
+        }
+    }
+
+    @Test
     fun noValueUntilTheWindowIsFull() {
         val states = run(LivePowerEngine(params), 12) { 8.0 }
         assertNull(states[8].power10s)

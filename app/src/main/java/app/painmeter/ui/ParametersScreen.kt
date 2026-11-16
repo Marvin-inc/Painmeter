@@ -121,6 +121,46 @@ fun ParametersScreen(
                     BigButton("IMPORT .MAP", Modifier.weight(1f), Pm.Blue, Color.White, onClick = onImportMap)
                 }
             }
+            Section("DISPLAY & LOCATION") {
+                Text("Power shown on screen: average over", color = Pm.Text, fontSize = 16.sp)
+                Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(3, 5, 10, 20, 30).forEach { w ->
+                        val on = settings.powerWindowS == w
+                        BigButton(
+                            "$w s", Modifier.weight(1f), if (on) Pm.Blue else Pm.SurfaceAlt, if (on) Color.White else Pm.Text,
+                            onClick = { onChange(settings.copy(powerWindowS = w)) },
+                        )
+                    }
+                }
+                Text(
+                    if (settings.powerWindowS <= 3) "⚠ 3 s is very noisy with estimated power (about ±30–40 % on the flat): it shows the trend of a sprint, not a number to trust."
+                    else "Shorter reacts faster but is noisier; 10 s is a good start. The FIT file keeps its own 5 s value.",
+                    color = if (settings.powerWindowS <= 3) Pm.Amber else Pm.Muted, fontSize = 13.sp,
+                )
+                Text("Location source", color = Pm.Text, fontSize = 16.sp, modifier = Modifier.padding(top = 6.dp))
+                Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BigButton(
+                        "GOOGLE\nfast start", Modifier.weight(1f),
+                        if (!settings.rawGps) Pm.Blue else Pm.SurfaceAlt, if (!settings.rawGps) Color.White else Pm.Text,
+                        onClick = { onChange(settings.copy(rawGps = false)) },
+                    )
+                    BigButton(
+                        "GPS CHIP\nless lag", Modifier.weight(1f),
+                        if (settings.rawGps) Pm.Blue else Pm.SurfaceAlt, if (settings.rawGps) Color.White else Pm.Text,
+                        onClick = { onChange(settings.copy(rawGps = true)) },
+                    )
+                }
+                Text(
+                    if (settings.rawGps) "Raw GPS chip: about 1 s less lag on speed, but a slower first fix (wait for \"GPS: ready\" outside) and weaker under trees and in tunnels."
+                    else "Google's location service: quick first fix (Wi-Fi and cell help), but it filters positions and can add about 1 s of lag on speed.",
+                    color = Pm.Muted, fontSize = 13.sp,
+                )
+                ToggleRow(
+                    "Compass when stopped",
+                    "Turns the map with the phone's compass below 4 km/h. Turn off if the map points wrong (a motor or magnet near the phone).",
+                    settings.compassWhenStopped,
+                ) { onChange(settings.copy(compassWhenStopped = it)) }
+            }
             Section("RIDER") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DecimalField("Weight kg", settings.riderKg, 30.0..200.0, Modifier.weight(1f)) { onChange(settings.copy(riderKg = it)) }

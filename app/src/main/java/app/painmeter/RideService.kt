@@ -1,6 +1,5 @@
 package app.painmeter
 
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -17,11 +16,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import app.painmeter.core.Fix
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import java.io.File
 
 /**
@@ -30,15 +24,9 @@ import java.io.File
  */
 class RideService : Service() {
 
-    private val fused by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private val feed by lazy { LocationFeed(this) { RideController.onLocation(it) } }
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
-
-    private val callback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            result.locations.forEach { RideController.onFix(it.toFix()) }
-        }
-    }
 
     private val ticker = object : Runnable {
         override fun run() {
@@ -104,16 +92,12 @@ class RideService : Service() {
         )
     }
 
-    @SuppressLint("MissingPermission") // Checked by MainActivity before the service is started.
     private fun startUpdates() {
         if (running) return
         running = true
         HrMonitor.acquire("ride")
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
-            .setMinUpdateIntervalMillis(1000)
-            .setWaitForAccurateLocation(false)
-            .build()
-        fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
+        Compass.start(this)
+        feed.start(Settings.current.value.rawGps)
         handler.post(ticker)
     }
 
@@ -121,7 +105,8 @@ class RideService : Service() {
         if (!running) return
         running = false
         HrMonitor.release("ride")
-        fused.removeLocationUpdates(callback)
+        Compass.stop()
+        feed.stop()
         handler.removeCallbacks(ticker)
     }
 
