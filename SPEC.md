@@ -260,7 +260,10 @@ Optional extra fields to swap in: 30 s power, wind (head/tail, km/h), NP.
 - Strip at the bottom: **last lap** — time, avg power, avg %FTP, avg HR + zone.
 
 ### 9.5 Map
-- Offline Mapsforge map, heading-up, zoom kept between rides.
+- Offline Mapsforge map, heading-up, zoom kept between rides. Heading: the GPS course when
+  moving; the phone's compass below 4 km/h (back to GPS above 6 km/h), smoothed and corrected to
+  true north, read for a phone between flat and upright on the mount. The map glides to each new
+  heading over 0.5 s, the short way round.
 - Route line if a route is loaded; ridden track in another colour.
 - With a route: **distance to destination**, **next-turn arrow + distance**, **off-route alert**.
 - Two small fields: speed, power 10 s.
