@@ -1,0 +1,158 @@
+package app.painmeter
+
+import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.location.Location
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
+import app.painmeter.core.Fix
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import java.io.File
+
+/**
+ * Keeps the ride recording while the screen is off or another app is in front: a foreground
+ * service with a location type, a 1 Hz GPS subscription and a 1 s ticker.
+ */
+class RideService : Service() {
+
+    private val fused by lazy { LocationServices.getFusedLocationProviderClient(this) }
+    private val handler = Handler(Looper.getMainLooper())
+    private var running = false
+
+    private val callback = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            result.locations.forEach { RideController.onFix(it.toFix()) }
+        }
+    }
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            RideController.tick(System.currentTimeMillis())
+            handler.postDelayed(this, 1000)
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        RideController.init(this)
+        when (intent?.action) {
+            ACTION_START -> {
+                goForeground()
+                RideController.startNewRide(System.currentTimeMillis())
+                startUpdates()
+            }
+            ACTION_RESUME -> {
+                val dir = intent.getStringExtra(EXTRA_DIR)?.let(::File)
+                goForeground()
+                if (dir != null) RideController.resumeUnfinished(dir, System.currentTimeMillis())
+                startUpdates()
+            }
+            ACTION_STOP -> {
+                stopUpdates()
+                RideController.stop(System.currentTimeMillis()) {
+                    ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
+            null -> {
+                // Restarted by the system after the process was killed mid-ride: carry on.
+                val dir = RideStore(this).unfinished().firstOrNull()
+                if (dir == null) { stopSelf(); return START_NOT_STICKY }
+                goForeground()
+                RideController.resumeUnfinished(dir, System.currentTimeMillis())
+                startUpdates()
+            }
+        }
+        return START_STICKY
+    }
+
+    private fun goForeground() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL, "Ride recording", NotificationManager.IMPORTANCE_LOW)
+        )
+        val open = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification: Notification = NotificationCompat.Builder(this, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Recording ride")
+            .setContentText("Tap to open Painmeter")
+            .setContentIntent(open)
+            .setOngoing(true)
+            .build()
+        ServiceCompat.startForeground(
+            this, NOTIFICATION_ID, notification,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+        )
+    }
+
+    @SuppressLint("MissingPermission") // Checked by MainActivity before the service is started.
+    private fun startUpdates() {
+        if (running) return
+        running = true
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
+            .setMinUpdateIntervalMillis(1000)
+            .setWaitForAccurateLocation(false)
+            .build()
+        fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
+        handler.post(ticker)
+    }
+
+    private fun stopUpdates() {
+        if (!running) return
+        running = false
+        fused.removeLocationUpdates(callback)
+        handler.removeCallbacks(ticker)
+    }
+
+    override fun onDestroy() {
+        stopUpdates()
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val CHANNEL = "ride"
+        private const val NOTIFICATION_ID = 1
+        const val ACTION_START = "app.painmeter.START"
+        const val ACTION_RESUME = "app.painmeter.RESUME"
+        const val ACTION_STOP = "app.painmeter.STOP"
+        const val EXTRA_DIR = "dir"
+
+        fun start(context: Context) = send(context, Intent(context, RideService::class.java).setAction(ACTION_START))
+
+        fun resume(context: Context, dir: File) = send(
+            context, Intent(context, RideService::class.java).setAction(ACTION_RESUME).putExtra(EXTRA_DIR, dir.path)
+        )
+
+        fun stop(context: Context) = context.startService(Intent(context, RideService::class.java).setAction(ACTION_STOP))
+
+        private fun send(context: Context, intent: Intent) = ContextCompat.startForegroundService(context, intent)
+    }
+}
+
+fun Location.toFix() = Fix(
+    timeMs = time,
+    lat = latitude,
+    lon = longitude,
+    altitudeM = if (hasAltitude()) altitude else null,
+    speedMps = if (hasSpeed()) speed.toDouble() else null,
+    accuracyM = if (hasAccuracy()) accuracy.toDouble() else null,
+)
