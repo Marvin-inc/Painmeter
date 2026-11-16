@@ -140,8 +140,83 @@ object RideController {
 
     // ------------------------------------------------------------ lifecycle (called by RideService)
 
-    fun startNewRide(nowMs: Long) {
+    // ------------------------------------------------------------ calibration (SPEC §9.7)
+
+    private val _calibrationMode = MutableStateFlow(false)
+    /** True while riding a coast-down test: the ride screen shows the test page. */
+    val calibrationMode: StateFlow<Boolean> = _calibrationMode
+
+    /** Runs marked so far in the test: each direction, and whether a run is open (coasting). */
+    data class CalibRuns(val out: Int = 0, val back: Int = 0, val coasting: Boolean = false)
+
+    private val _calibRuns = MutableStateFlow(CalibRuns())
+    val calibRuns: StateFlow<CalibRuns> = _calibRuns
+    private val presses = mutableListOf<Fix>()
+    private var lastFix: Fix? = null
+
+    /** A calibration result to show, from the test just ridden or a ride from the history. */
+    data class Calibration(
+        val dir: File,
+        val result: app.painmeter.core.calibration.CoastDown.Result,
+        val warnings: List<String>,
+        val keepCrrFixed: Boolean,
+    )
+
+    private val _calibration = MutableStateFlow<Calibration?>(null)
+    val calibration: StateFlow<Calibration?> = _calibration
+
+    /** Runs the calibration on a stopped ride (in the background). */
+    fun calibrate(dir: File, keepCrrFixed: Boolean = false) {
+        val settings = rideSettings()
+        scope.launch {
+            val c = withContext(Dispatchers.Default) {
+                val input = app.painmeter.core.calibration.RideCalibration.input(store.read(dir), settings)
+                    ?: return@withContext null
+                val r = app.painmeter.core.calibration.CoastDown.run(input, settings.power.massKg, settings.power.crr, keepCrrFixed)
+                Calibration(dir, r, app.painmeter.core.calibration.RideCalibration.warnings(r), keepCrrFixed)
+            }
+            _calibration.value = c ?: Calibration(
+                dir,
+                app.painmeter.core.calibration.CoastDown.Result(
+                    emptyList(), false, "laps", false, false, null, emptyList(), null, null, null, null, "none",
+                ),
+                listOf("This ride is too short for a calibration."), keepCrrFixed,
+            )
+        }
+    }
+
+    fun applyCalibration() {
+        val fit = _calibration.value?.result?.fit ?: return
+        Settings.update {
+            it.copy(cda = fit.cda, crr = fit.crr, calibDateMs = System.currentTimeMillis(), calibSeCda = fit.seCda, calibSeCrr = fit.seCrr)
+        }
+    }
+
+    fun closeCalibration() { _calibration.value = null }
+
+    private fun updateCalibRuns() {
+        // Pairs of presses: start and end of a coast. A run counts when it lasted 8 s to 5 min and
+        // slowed down by 1 m/s or more; its direction is compared with the first run.
+        var out = 0; var back = 0
+        var ref: Double? = null
+        for (k in 0 until presses.size - 1 step 2) {
+            val a = presses[k]; val b = presses[k + 1]
+            val dur = (b.timeMs - a.timeMs) / 1000
+            if (dur < 8 || dur > 300 || (a.speedMps ?: 0.0) - (b.speedMps ?: 0.0) < 1) continue
+            val bearing = app.painmeter.core.route.Route.bearing(
+                app.painmeter.core.route.RoutePoint(a.lat, a.lon), app.painmeter.core.route.RoutePoint(b.lat, b.lon),
+            )
+            val r = ref ?: bearing.also { ref = it }
+            if (kotlin.math.cos(Math.toRadians(bearing - r)) >= 0) out++ else back++
+        }
+        _calibRuns.value = CalibRuns(out, back, coasting = presses.size % 2 == 1)
+    }
+
+    fun startNewRide(nowMs: Long, calibration: Boolean = false) {
         if (isActive) return
+        _calibrationMode.value = calibration
+        presses.clear()
+        _calibRuns.value = CalibRuns()
         val dir = store.newRideDir(nowMs)
         open(dir, RideSession(rideSettings()))
         record(session!!.start(nowMs))
@@ -185,6 +260,7 @@ object RideController {
     fun onFix(raw: Fix) {
         val s = session ?: return
         var fix = raw.copy(demAltitudeM = ElevationStore.elevation(raw.lat, raw.lon))
+        lastFix = raw
         updateNav(fix)
         // On the route, the route profile gives the gradient without lag (SPEC §4).
         val onRoute = _nav.value?.state?.takeIf { !it.offRoute && it.offsetM <= 50 }
@@ -341,6 +417,7 @@ object RideController {
         val s = session ?: return
         val produced = s.lap(nowMs)
         if (produced.isEmpty()) return
+        if (_calibrationMode.value) lastFix?.let { presses += it; updateCalibRuns() }
         record(produced)
         journal?.sync()
         _laps.tryEmit(s.completedLaps.size)
@@ -370,8 +447,11 @@ object RideController {
         // A climb still going at the stop counts up to here.
         if (detector.active) detector.endRouteClimb()
         val climbs = detector.climbs.toList()
+        val wasCalibration = _calibrationMode.value
+        _calibrationMode.value = false
         scope.launch {
             _finished.value = export(dir, snap, laps).copy(climbs = climbs)
+            if (wasCalibration) calibrate(dir)
             onDone()
         }
     }
@@ -388,6 +468,35 @@ object RideController {
         scope.launch { _finished.value = export(dir, s.snapshot(last), s.completedLaps) }
     }
 
+    // ------------------------------------------------------------ history
+
+    /** History lines, newest first, computed in the background (cached per ride). */
+    suspend fun history(): List<Pair<File, RideStore.Summary>> = withContext(Dispatchers.IO) {
+        store.finished().mapNotNull { dir ->
+            val cached = store.readSummary(dir)
+            if (cached != null) return@mapNotNull dir to cached
+            val entries = store.read(dir)
+            val end = entries.maxOfOrNull { it.timeMs } ?: return@mapNotNull null
+            val snap = RideSession.replay(entries, rideSettings()).snapshot(end)
+            store.writeSummary(dir, snap)
+            store.readSummary(dir)?.let { dir to it }
+        }
+    }
+
+    /** Opens a past ride's summary (rebuilt from its journal; climbs are not kept). */
+    fun openRide(dir: File) {
+        scope.launch {
+            _finished.value = withContext(Dispatchers.IO) {
+                val entries = store.read(dir)
+                val end = entries.maxOf { it.timeMs }
+                val s = RideSession.replay(entries, rideSettings())
+                FinishedRide(dir, s.snapshot(end), s.completedLaps, store.fit(dir).takeIf { it.exists() })
+            }
+        }
+    }
+
+    fun deleteRide(dir: File) = store.delete(dir)
+
     fun closeSummary() {
         _finished.value = null
         refreshUnfinished()
@@ -397,6 +506,7 @@ object RideController {
         withContext(Dispatchers.IO) {
             val fit = store.fit(dir)
             try {
+                store.writeSummary(dir, snap)
                 FitExporter.export(store.read(dir), fit, rideSettings())
                 FinishedRide(dir, snap, laps, fit)
             } catch (e: Exception) {

@@ -54,7 +54,7 @@ class RideService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 goForeground()
-                RideController.startNewRide(System.currentTimeMillis())
+                RideController.startNewRide(System.currentTimeMillis(), intent.getBooleanExtra(EXTRA_CALIBRATION, false))
                 startUpdates()
             }
             ACTION_RESUME -> {
@@ -137,8 +137,11 @@ class RideService : Service() {
         const val ACTION_RESUME = "app.painmeter.RESUME"
         const val ACTION_STOP = "app.painmeter.STOP"
         const val EXTRA_DIR = "dir"
+        const val EXTRA_CALIBRATION = "calibration"
 
-        fun start(context: Context) = send(context, Intent(context, RideService::class.java).setAction(ACTION_START))
+        fun start(context: Context, calibration: Boolean = false) = send(
+            context, Intent(context, RideService::class.java).setAction(ACTION_START).putExtra(EXTRA_CALIBRATION, calibration)
+        )
 
         fun resume(context: Context, dir: File) = send(
             context, Intent(context, RideService::class.java).setAction(ACTION_RESUME).putExtra(EXTRA_DIR, dir.path)

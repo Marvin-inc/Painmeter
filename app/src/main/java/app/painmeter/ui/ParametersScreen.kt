@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -60,6 +61,7 @@ fun ParametersScreen(
     onImportMap: () -> Unit = {},
     onDeleteMap: (java.io.File) -> Unit = {},
     onOpenMapDownloads: () -> Unit = {},
+    onCalibrate: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(Pm.Background)) {
         Row(
@@ -134,7 +136,17 @@ fun ParametersScreen(
                     DecimalField("CdA m²", settings.cda, 0.10..0.80, Modifier.weight(1f), decimals = 3) { onChange(settings.copy(cda = it)) }
                     DecimalField("Crr", settings.crr, 0.0015..0.015, Modifier.weight(1f), decimals = 4) { onChange(settings.copy(crr = it)) }
                 }
-                Text("Calibration (coast-down) comes in phase 6. Until then, use the web tool's result.", color = Pm.Muted, fontSize = 13.sp)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        settings.calibDateMs?.let { d ->
+                            "Calibrated " + java.text.SimpleDateFormat("d MMM", java.util.Locale.ENGLISH).format(java.util.Date(d)) +
+                                (settings.calibSeCda?.let { " · CdA ±" + String.format(java.util.Locale.ROOT, "%.3f", it) } ?: "") +
+                                (settings.calibSeCrr?.let { " · Crr ±" + String.format(java.util.Locale.ROOT, "%.4f", it) } ?: "")
+                        } ?: "Not calibrated yet",
+                        color = Pm.Muted, fontSize = 13.sp, modifier = Modifier.weight(1f),
+                    )
+                    BigButton("CALIBRATE →", Modifier.height(44.dp).width(140.dp), Pm.SurfaceAlt, Pm.Power, onClick = onCalibrate)
+                }
             }
             Section("ON A WHEEL") {
                 DecimalField("CdA factor on a wheel", settings.draftFactor, 0.3..1.0, Modifier.fillMaxWidth(), decimals = 2) { onChange(settings.copy(draftFactor = it)) }

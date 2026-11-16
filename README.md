@@ -5,7 +5,7 @@ offline elevation data, weather and your own CdA / Crr. See [SPEC.md](SPEC.md).
 
 ## Status
 
-Phases 1–5 of 8: recording, heart rate, live estimated power, map and route, **climbs**.
+Phases 1–6 of 8: recording, heart rate, live estimated power, map and route, climbs, **laps, calibration and history**.
 
 - **Power** (phase 3): your CdA, Crr and weights, offline elevation tiles for the gradient, live
   weather (wind at rider height, air density). 10 s power on the Data page, cyan when reliable,
@@ -28,14 +28,27 @@ Phases 1–5 of 8: recording, heart rate, live estimated power, map and route, *
   and average gradient left to the top, and the next climb when not climbing. The page opens by
   itself when a climb starts. On a route the gradient comes from the route profile (no lag).
   Climbs table in the summary.
+- **Lap page** (phase 6): lap time, power 10 s and %FTP, speed, HR; lap averages (power, %FTP,
+  HR + zone); the last lap below.
+- **Calibration** (phase 6): Parameters → Bike & aero → Calibrate. Guided coast-down test (volume −
+  at the start and end of each coast, runs counted each way), then CdA ±, Crr ±, wind and slope
+  solved from the out-and-back runs, R², the drag plot, warnings when weak, "Keep Crr fixed", and
+  **Apply to parameters**. Also works on any past ride. Port of the web tool's calibration, checked
+  against it (`CoastDownTest`).
+- **History** (phase 6): past rides with distance, time, gain, power, HR; open the summary, share
+  the FIT file, calibrate from a ride, delete.
 
 Before the first ride, set in **Parameters**: weight, FTP, bike weight, CdA, Crr, max HR and zones,
 then **Download around me** (elevation data, ≈ 100 MB, on Wi-Fi), and import your region's map
 (**Get maps** → download the `.map` file → **Import .map**).
 
-| Ride | Climb (route) | Climb (live) | Map, next turn | Off route | Summary |
-|---|---|---|---|---|---|
-| ![](docs/screenshots/ride.png) | ![](docs/screenshots/ride-climb.png) | ![](docs/screenshots/ride-climb-live.png) | ![](docs/screenshots/ride-map.png) | ![](docs/screenshots/ride-map-offroute.png) | ![](docs/screenshots/summary.png) |
+| Ride | Climb | Lap | Map | Summary |
+|---|---|---|---|---|
+| ![](docs/screenshots/ride.png) | ![](docs/screenshots/ride-climb.png) | ![](docs/screenshots/ride-lap.png) | ![](docs/screenshots/ride-map.png) | ![](docs/screenshots/summary.png) |
+
+| Calibration test | Calibration result | History | On a wheel | Off route |
+|---|---|---|---|---|
+| ![](docs/screenshots/calibration-test.png) | ![](docs/screenshots/calibration-result.png) | ![](docs/screenshots/history.png) | ![](docs/screenshots/ride-wheel.png) | ![](docs/screenshots/ride-map-offroute.png) |
 
 ## Install on the phone
 
@@ -59,8 +72,9 @@ Needs JDK 17+ and the Android SDK (platform 35).
 
 - `core/`: pure Kotlin, no Android: ride state machine, auto-pause, laps, elevation gain, journal,
   FIT export (Garmin FIT SDK), heart rate, the power model (`power/`), elevation tiles
-  (`elevation/`), GPX routes, route following and turn detection (`route/`), climbs (`climb/`). Later: the calibration.
-- `tools/golden/`: regenerates the reference data from the web tool with Node.
+  (`elevation/`), GPX routes, route following and turn detection (`route/`), climbs (`climb/`), coast-down calibration (`calibration/`).
+- `tools/golden/`: regenerates the reference data from the web tool with Node (power model and
+  calibration).
 - `app/`: Android app: `RideService` (foreground GPS), `RideController`, Compose screens in `ui/`.
 
 ## Licences

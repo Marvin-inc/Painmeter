@@ -9,7 +9,12 @@ import app.painmeter.core.RideStatus
 import app.painmeter.core.climb.ClimbProgress
 import app.painmeter.core.climb.RouteClimb
 import app.painmeter.core.power.PowerState
+import app.painmeter.core.calibration.CoastDown
 import app.painmeter.ui.CLIMB_PAGE
+import app.painmeter.ui.CalibrationIntroScreen
+import app.painmeter.ui.CalibrationResultScreen
+import app.painmeter.ui.HistoryScreen
+import app.painmeter.ui.LAP_PAGE
 import app.painmeter.ui.MAP_PAGE
 import app.painmeter.core.route.NavState
 import app.painmeter.core.route.Route
@@ -122,6 +127,52 @@ class ScreenshotTest {
                 climb = RideController.ClimbUi(next = next, distanceToNextM = 4_200.0, climbCount = 3))
         }
         shot("ride-climb-next")
+    }
+
+    @Test fun ridePageLap() {
+        val s = snap.copy(lapNumber = 4, lapTimeMs = 222_000, lapAvgPower = 298.0, lapAvgHr = 164, ftpW = 280,
+            power = snap.power.copy(power10s = 305.0), speedMps = 36.2 / 3.6, hrBpm = 171, hrZone = 4,
+            lastLap = LapSummary(2, 0, 0, 240_000, 2010.0, 12.0, false, avgHr = 158, avgPower = 291.0))
+        compose.setContent { RideScreen(s, HrState.Connected("Polar H10", 171, true), {}, {}, {}, initialPage = LAP_PAGE, zones = zones) }
+        shot("ride-lap")
+    }
+
+    @Test fun calibrationIntro() {
+        compose.setContent { CalibrationIntroScreen(0.312, 0.0042, {}, {}, {}) }
+        shot("calibration-intro")
+    }
+
+    @Test fun calibrationTestRide() {
+        compose.setContent {
+            RideScreen(snap.copy(speedMps = 27.3 / 3.6), HrState.Connected("Polar H10", 140, true), {}, {}, {},
+                calibrationRuns = RideController.CalibRuns(out = 3, back = 2, coasting = true))
+        }
+        shot("calibration-test")
+    }
+
+    @Test fun calibrationResult() {
+        // Windows on the line F = 26 + 0.30·q, both directions, a few left out.
+        val wins = (0 until 40).map { i ->
+            val q = 8.0 + i * 1.6
+            val f = 26 + 0.30 * q + (if (i % 3 == 0) 1.5 else -1.0)
+            CoastDown.Window(i / 5, q, f, used = i % 13 != 7, q0 = q, rho = 1.2, vm = 8.0, fi = f, dir = if (i % 2 == 0) 1 else -1)
+                .apply { px = q; py = f }
+        }
+        val segs = (0 until 12).map { CoastDown.Segment(it * 10, it * 10 + 9).apply { dir = if (it % 2 == 0) 1 else -1 } }
+        val fit = CoastDown.Fit(0.304, 0.0045, 1.1, 37, 0.016, 0.0005, 0.94, wind = -1.8, slope = 0.004, res = emptyList())
+        val r = CoastDown.Result(segs, false, "laps", true, true, 20.0, wins, fit, "free", "paired", null, null)
+        val c = RideController.Calibration(File("x"), r, listOf("Only 6 runs one way and 6 the other: do 5–6 out-and-back pairs."), false)
+        compose.setContent { CalibrationResultScreen(c, 0.312, 0.0042, {}, {}, {}) }
+        shot("calibration-result")
+    }
+
+    @Test fun history() {
+        val rides = listOf(
+            File("20261116-084512") to RideStore.Summary(1_763_282_712_000, 5_283_000, 82_400.0, 1450.0, 196.0, 221.0, 146),
+            File("20261114-171002") to RideStore.Summary(1_763_140_202_000, 2_710_000, 21_300.0, 160.0, 171.0, 180.0, 138),
+        )
+        compose.setContent { HistoryScreen(rides, false, {}, {}, {}, {}, {}) }
+        shot("history")
     }
 
     @Test fun rideOnAWheel() {

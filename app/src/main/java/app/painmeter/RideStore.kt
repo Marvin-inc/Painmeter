@@ -22,6 +22,36 @@ class RideStore(context: Context) {
 
     fun read(dir: File): List<JournalEntry> = JournalReader.read(journal(dir))
 
+    /** Stopped rides, newest first. */
+    fun finished(): List<File> =
+        (root.listFiles()?.toList() ?: emptyList())
+            .filter { it.isDirectory && (fit(it).exists() || File(it, "summary.txt").exists() || read(it).any { e -> e is JournalEntry.Stop }) }
+            .sortedByDescending { it.name }
+
+    fun delete(dir: File) {
+        if (dir.parentFile == root) dir.deleteRecursively()
+    }
+
+    /** One line in the history list, cached next to the journal. */
+    data class Summary(
+        val startMs: Long, val rideTimeMs: Long, val distanceM: Double, val gainM: Double,
+        val avgPower: Double?, val np: Double?, val avgHr: Int?,
+    )
+
+    fun writeSummary(dir: File, s: app.painmeter.core.RideSnapshot) {
+        File(dir, "summary.txt").writeText(
+            listOf(s.startTimeMs ?: 0, s.rideTimeMs, s.distanceM, s.elevationGainM, s.avgPower ?: "", s.normalizedPower ?: "", s.avgHr ?: "")
+                .joinToString(",")
+        )
+    }
+
+    fun readSummary(dir: File): Summary? = try {
+        val f = File(dir, "summary.txt").readText().trim().split(',')
+        Summary(f[0].toLong(), f[1].toLong(), f[2].toDouble(), f[3].toDouble(), f[4].toDoubleOrNull(), f[5].toDoubleOrNull(), f[6].toIntOrNull())
+    } catch (_: Exception) {
+        null
+    }
+
     /** Rides that were started and never stopped (app or phone died), newest first. */
     fun unfinished(): List<File> =
         (root.listFiles()?.toList() ?: emptyList())

@@ -72,6 +72,9 @@ fun RideScreen(
     initialPage: Int = 0,
     climb: RideController.ClimbUi = RideController.ClimbUi(),
     climbAutoSwitch: Boolean = true,
+    zones: app.painmeter.core.HrZones? = null,
+    /** Set while riding a coast-down test: the test page replaces the ride pages. */
+    calibrationRuns: RideController.CalibRuns? = null,
 ) {
     val context = LocalContext.current
     val drafting = snap.power.drafting
@@ -144,7 +147,7 @@ fun RideScreen(
                 }
             }
 
-            // Swipe between pages (SPEC §9.1): Data, Climb, Map. The Lap page comes in phase 6.
+            // Swipe between pages (SPEC §9.1): Data, Climb, Lap, Map.
             val pager = rememberPagerState(initialPage = initialPage) { PAGES }
             // SPEC §7.4: show the Climb page when a climb starts, go back 10 s after the top.
             LaunchedEffect(climbAutoSwitch) {
@@ -165,7 +168,9 @@ fun RideScreen(
                     }
                 }
             }
-            HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
+            if (calibrationRuns != null) {
+                CalibrationRidePage(snap, calibrationRuns, onLap, Modifier.weight(1f).padding(10.dp))
+            } else HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
                 when (page) {
                     0 -> Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val p10 = snap.power.power10s
@@ -198,11 +203,22 @@ fun RideScreen(
                 }
                                 }
                     CLIMB_PAGE -> ClimbPage(snap, climb, Modifier.fillMaxSize().padding(10.dp))
+                    LAP_PAGE -> LapPage(snap, zones, onLap, Modifier.fillMaxSize().padding(10.dp))
                     else -> MapPage(snap, nav, track, maps, Modifier.fillMaxSize().padding(10.dp))
                 }
             }
-            PageDots(pager.currentPage, PAGES)
+            if (calibrationRuns == null) PageDots(pager.currentPage, PAGES)
 
+            if (calibrationRuns != null) {
+                // Coast-down test: only pause and finish; runs are marked with volume − or END RUN.
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 12.dp).height(60.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    BigButton(if (paused) "RESUME" else "PAUSE", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onTogglePause)
+                    BigButton("HOLD TO FINISH\nTHE TEST", Modifier.weight(1.4f), Pm.Surface, Pm.Rec, onLongClick = onStop)
+                }
+            } else {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(56.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -221,6 +237,7 @@ fun RideScreen(
                     if (drafting) Color(0xFF111111) else Pm.Text,
                     onClick = { onDraft(!drafting) },
                 )
+            }
             }
         }
 
@@ -243,9 +260,10 @@ fun RideScreen(
     }
 }
 
-private const val PAGES = 3
+private const val PAGES = 4
 const val CLIMB_PAGE = 1
-const val MAP_PAGE = 2
+const val LAP_PAGE = 2
+const val MAP_PAGE = 3
 
 @Composable
 private fun PageDots(current: Int, count: Int) {

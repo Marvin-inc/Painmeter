@@ -30,6 +30,10 @@ data class UserSettings(
     val climbMinLength: Double = 500.0,
     val climbMinGain: Double = 25.0,
     val climbAutoSwitch: Boolean = true,
+    /** Last calibration applied: when, and the uncertainty of CdA and Crr. */
+    val calibDateMs: Long? = null,
+    val calibSeCda: Double? = null,
+    val calibSeCrr: Double? = null,
 ) {
     val climbs: app.painmeter.core.climb.ClimbSettings
         get() = app.painmeter.core.climb.ClimbSettings(
@@ -78,6 +82,9 @@ object Settings {
             .putString("climbLength", next.climbMinLength.toString())
             .putString("climbGain", next.climbMinGain.toString())
             .putBoolean("climbSwitch", next.climbAutoSwitch)
+            .putLong("calibDate", next.calibDateMs ?: -1)
+            .putString("calibSeCda", next.calibSeCda?.toString())
+            .putString("calibSeCrr", next.calibSeCrr?.toString())
             .apply()
     }
 
@@ -107,6 +114,9 @@ object Settings {
             climbMinLength = dbl("climbLength", d.climbMinLength),
             climbMinGain = dbl("climbGain", d.climbMinGain),
             climbAutoSwitch = prefs.getBoolean("climbSwitch", d.climbAutoSwitch),
+            calibDateMs = prefs.getLong("calibDate", -1).takeIf { it > 0 },
+            calibSeCda = prefs.getString("calibSeCda", null)?.toDoubleOrNull(),
+            calibSeCrr = prefs.getString("calibSeCrr", null)?.toDoubleOrNull(),
         )
     }
 

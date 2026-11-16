@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +39,7 @@ fun HomeScreen(
     onResume: (File) -> Unit,
     onSaveUnfinished: (File) -> Unit,
     onParameters: () -> Unit,
+    onHistory: () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().background(Pm.Background).padding(16.dp),
@@ -92,6 +94,8 @@ fun HomeScreen(
 
         Row(Modifier.fillMaxWidth().height(56.dp)) {
             BigButton("PARAMETERS", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onParameters)
+            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+            BigButton("HISTORY", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onHistory)
         }
 
         Row(Modifier.fillMaxWidth().height(96.dp)) {

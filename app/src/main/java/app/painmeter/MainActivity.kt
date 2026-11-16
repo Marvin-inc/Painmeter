@@ -27,7 +27,10 @@ import app.painmeter.ui.RouteInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.painmeter.ui.CalibrationIntroScreen
+import app.painmeter.ui.CalibrationResultScreen
 import app.painmeter.ui.ElevationPanelState
+import app.painmeter.ui.HistoryScreen
 import app.painmeter.ui.HomeScreen
 import app.painmeter.ui.ParametersScreen
 import app.painmeter.ui.RideScreen
@@ -41,7 +44,11 @@ import com.google.android.gms.location.Priority
 class MainActivity : ComponentActivity() {
 
     private var hasLocation by mutableStateOf(false)
-    private var showParameters by mutableStateOf(false)
+    private enum class Screen { HOME, PARAMETERS, HISTORY, CALIBRATION, PICK_CALIBRATION_RIDE }
+    private var screen by mutableStateOf(Screen.HOME)
+    private var showParameters: Boolean
+        get() = screen == Screen.PARAMETERS
+        set(v) { screen = if (v) Screen.PARAMETERS else Screen.HOME }
     /** Latest position seen before the ride: latitude, longitude, accuracy (m). */
     private var position by mutableStateOf<Triple<Double, Double, Double?>?>(null)
 
@@ -90,7 +97,11 @@ class MainActivity : ComponentActivity() {
             }
             val current = ride
             val done = finished
-            BackHandler(enabled = showParameters && current == null) { showParameters = false }
+            val calibration by RideController.calibration.collectAsStateWithLifecycle()
+            val calibrationMode by RideController.calibrationMode.collectAsStateWithLifecycle()
+            BackHandler(enabled = screen != Screen.HOME && current == null) {
+                screen = if (screen == Screen.PICK_CALIBRATION_RIDE) Screen.CALIBRATION else Screen.HOME
+            }
             when {
                 current != null -> RideScreen(
                     snap = current,
@@ -100,13 +111,43 @@ class MainActivity : ComponentActivity() {
                     onLap = { RideController.lap() },
                     onTogglePause = { RideController.togglePause() },
                     onStop = { RideService.stop(this) },
+                    calibrationRuns = if (calibrationMode) RideController.calibRuns.collectAsStateWithLifecycle().value else null,
                     nav = RideController.nav.collectAsStateWithLifecycle().value,
                     track = RideController.track.collectAsStateWithLifecycle().value,
                     maps = maps,
                     climb = RideController.climb.collectAsStateWithLifecycle().value,
                     climbAutoSwitch = settings.climbAutoSwitch,
+                    zones = settings.hrZones,
                 )
+                calibration != null -> {
+                    val c = calibration!!
+                    CalibrationResultScreen(
+                        c, settings.cda, settings.crr,
+                        onKeepCrrFixed = { RideController.calibrate(c.dir, keepCrrFixed = it) },
+                        onApply = { RideController.applyCalibration(); RideController.closeCalibration(); RideController.closeSummary(); screen = Screen.PARAMETERS },
+                        onDone = { RideController.closeCalibration() },
+                    )
+                }
                 done != null -> SummaryScreen(done, settings.hrZones, onShare = { shareFit(done) }, onDone = { RideController.closeSummary() })
+                screen == Screen.CALIBRATION -> CalibrationIntroScreen(
+                    settings.cda, settings.crr,
+                    onStartTest = { screen = Screen.HOME; RideService.start(this, calibration = true) },
+                    onFromHistory = { screen = Screen.PICK_CALIBRATION_RIDE },
+                    onBack = { screen = Screen.PARAMETERS },
+                )
+                screen == Screen.HISTORY || screen == Screen.PICK_CALIBRATION_RIDE -> {
+                    var rides by remember { mutableStateOf<List<Pair<java.io.File, RideStore.Summary>>?>(null) }
+                    var version by remember { mutableStateOf(0) }
+                    androidx.compose.runtime.LaunchedEffect(version) { rides = RideController.history() }
+                    HistoryScreen(
+                        rides, pickForCalibration = screen == Screen.PICK_CALIBRATION_RIDE,
+                        onOpen = { RideController.openRide(it) },
+                        onShare = { shareFile(java.io.File(it, "ride.fit"), it.name) },
+                        onCalibrate = { RideController.calibrate(it) },
+                        onDelete = { RideController.deleteRide(it); version++ },
+                        onBack = { screen = if (screen == Screen.PICK_CALIBRATION_RIDE) Screen.CALIBRATION else Screen.HOME },
+                    )
+                }
                 showParameters -> {
                     val found by HrMonitor.found.collectAsStateWithLifecycle()
                     val scanning by HrMonitor.scanning.collectAsStateWithLifecycle()
@@ -140,6 +181,7 @@ class MainActivity : ComponentActivity() {
                         onClearRoute = { RouteStore.clearRoute(); importMessage = null },
                         onImportMap = { pickMap.launch(arrayOf("*/*")) },
                         onDeleteMap = { RouteStore.deleteMap(it) },
+                        onCalibrate = { screen = Screen.CALIBRATION },
                         onOpenMapDownloads = {
                             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://download.mapsforge.org/maps/v5/")))
                         },
@@ -161,6 +203,7 @@ class MainActivity : ComponentActivity() {
                         onResume = { RideService.resume(this, it) },
                         onSaveUnfinished = { RideController.finishUnfinished(it) },
                         onParameters = { showParameters = true },
+                        onHistory = { screen = Screen.HISTORY },
                     )
                 }
             }
@@ -232,12 +275,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun shareFit(ride: FinishedRide) {
-        val file = ride.fitFile ?: return
+        shareFile(ride.fitFile ?: return, ride.dir.name)
+    }
+
+    private fun shareFile(file: java.io.File, name: String) {
+        if (!file.exists()) return
         val uri = FileProvider.getUriForFile(this, "$packageName.files", file)
         val send = Intent(Intent.ACTION_SEND)
             .setType("application/octet-stream")
             .putExtra(Intent.EXTRA_STREAM, uri)
-            .putExtra(Intent.EXTRA_SUBJECT, "Ride ${ride.dir.name}.fit")
+            .putExtra(Intent.EXTRA_SUBJECT, "Ride $name.fit")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         startActivity(Intent.createChooser(send, "Share FIT file"))
     }
