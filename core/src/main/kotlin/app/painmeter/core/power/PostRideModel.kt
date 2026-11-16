@@ -51,6 +51,19 @@ object PostRideModel {
         val np: Double,
         val workKj: Double,
         val distanceKm: Double,
+        /** Raw SI series for the coast-down calibration, as `calib` in the web tool. */
+        val calib: CalibSeries,
+    )
+
+    data class CalibSeries(
+        val t: DoubleArray,
+        val v: DoubleArray,
+        val vRaw: DoubleArray,
+        /** Smoothed elevation, null when the file has none. */
+        val ele: DoubleArray?,
+        val grade: DoubleArray,
+        val wind: DoubleArray,
+        val rho: DoubleArray,
     )
 
     private const val G = 9.8067
@@ -149,6 +162,11 @@ object PostRideModel {
             np = normalisedPower(smoothed),
             workKj = work / 1000,
             distanceKm = dist[n - 1] / 1000,
+            calib = CalibSeries(
+                t = cumTime, v = smoothSpeed, vRaw = rawSpeed, ele = if (hasEle) ele else null, grade = smoothGrade,
+                wind = DoubleArray(n) { weather?.wind?.getOrNull(it) ?: 0.0 },
+                rho = DoubleArray(n) { weather?.rho?.getOrNull(it)?.takeIf { r -> !r.isNaN() } ?: p.rho },
+            ),
         )
     }
 
