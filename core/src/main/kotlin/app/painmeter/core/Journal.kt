@@ -17,6 +17,7 @@ sealed interface JournalEntry {
     data class Sample(val fix: Fix) : JournalEntry {
         override val timeMs: Long get() = fix.timeMs
     }
+    data class HeartRate(override val timeMs: Long, val bpm: Int) : JournalEntry
     data class Lap(override val timeMs: Long) : JournalEntry
     data class Pause(override val timeMs: Long, val auto: Boolean) : JournalEntry
     data class Resume(override val timeMs: Long, val auto: Boolean) : JournalEntry
@@ -28,6 +29,7 @@ sealed interface JournalEntry {
  * ```
  * START,<t>
  * S,<t>,<lat>,<lon>,<alt>,<speed>,<accuracy>
+ * H,<t>,<bpm>
  * LAP,<t>
  * PAUSE,<t>,<A|M>      RESUME,<t>,<A|M>
  * STOP,<t>
@@ -39,6 +41,7 @@ object JournalCodec {
         is JournalEntry.Sample -> with(e.fix) {
             "S,$timeMs,${num(lat, 7)},${num(lon, 7)},${num(altitudeM, 1)},${num(speedMps, 2)},${num(accuracyM, 1)}"
         }
+        is JournalEntry.HeartRate -> "H,${e.timeMs},${e.bpm}"
         is JournalEntry.Lap -> "LAP,${e.timeMs}"
         is JournalEntry.Pause -> "PAUSE,${e.timeMs},${if (e.auto) "A" else "M"}"
         is JournalEntry.Resume -> "RESUME,${e.timeMs},${if (e.auto) "A" else "M"}"
@@ -60,6 +63,7 @@ object JournalCodec {
                     accuracyM = f[6].toDoubleOrNull(),
                 )
             )
+            "H" -> JournalEntry.HeartRate(f[1].toLong(), f[2].toInt())
             "LAP" -> JournalEntry.Lap(f[1].toLong())
             "PAUSE" -> JournalEntry.Pause(f[1].toLong(), f[2] == "A")
             "RESUME" -> JournalEntry.Resume(f[1].toLong(), f[2] == "A")

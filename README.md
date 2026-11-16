@@ -5,20 +5,24 @@ offline elevation data, weather and your own CdA / Crr. See [SPEC.md](SPEC.md).
 
 ## Status
 
-Phase 1 of 8: ride recording.
+Phases 1–2 of 8: ride recording and heart rate.
 
 - Start / auto-pause / manual pause / stop, ride time, distance, speed, average speed, elevation
   gain (from GPS altitude for now; elevation tiles come in phase 3).
 - Recording keeps running with the screen off (foreground service).
 - **Lap**: volume-down key, or the LAP button.
 - Crash-safe: every second is written to a journal; a ride left open is offered for resume.
+- **Heart rate**: any Bluetooth LE strap (Polar, Wahoo, Garmin HRM-Dual…). Pair it once in
+  Parameters; it reconnects by itself. HR and zone shown together ("152 Z3"), average and max HR,
+  HR per lap and time in zones in the summary and in the FIT file.
+- **Parameters**: max HR, HR zones (or from max HR), strap pairing, auto-pause on/off.
 - FIT export at the end of the ride (share to Strava, Drive, e-mail…).
 
-Heart rate (phase 2) and power (phase 3) show `--` for now.
+Power (phase 3) shows `--` for now.
 
-| Ride | Auto-pause | Summary |
+| Ride | Parameters | Summary |
 |---|---|---|
-| ![](docs/screenshots/ride.png) | ![](docs/screenshots/ride-paused.png) | ![](docs/screenshots/summary.png) |
+| ![](docs/screenshots/ride.png) | ![](docs/screenshots/parameters.png) | ![](docs/screenshots/summary.png) |
 
 ## Install on the phone
 

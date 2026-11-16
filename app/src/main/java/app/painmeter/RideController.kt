@@ -60,9 +60,14 @@ object RideController {
     val isActive: Boolean get() = session?.status.let { it == RideStatus.RECORDING || it == RideStatus.PAUSED }
 
     fun init(context: Context) {
+        Settings.init(context)
+        HrMonitor.init(context)
         if (!::store.isInitialized) store = RideStore(context.applicationContext)
+        HrMonitor.onReading = { t, bpm -> onHeartRate(t, bpm) }
         refreshUnfinished()
     }
+
+    private fun rideSettings() = Settings.current.value.toRideSettings()
 
     fun refreshUnfinished() {
         _unfinished.value = if (isActive) null else store.unfinished().firstOrNull()
@@ -73,7 +78,7 @@ object RideController {
     fun startNewRide(nowMs: Long) {
         if (isActive) return
         val dir = store.newRideDir(nowMs)
-        open(dir, RideSession())
+        open(dir, RideSession(rideSettings()))
         record(session!!.start(nowMs))
         _finished.value = null
         publish(nowMs)
@@ -86,7 +91,7 @@ object RideController {
     fun resumeUnfinished(dir: File, nowMs: Long) {
         if (isActive) return
         val entries = store.read(dir)
-        val s = RideSession.replay(entries)
+        val s = RideSession.replay(entries, rideSettings())
         open(dir, s)
         val last = entries.maxOfOrNull { it.timeMs } ?: nowMs
         if (s.status == RideStatus.RECORDING) record(s.pause(last))
@@ -106,6 +111,11 @@ object RideController {
         val s = session ?: return
         record(s.onFix(fix))
         publish(System.currentTimeMillis())
+    }
+
+    fun onHeartRate(timeMs: Long, bpm: Int) {
+        val s = session ?: return
+        record(s.onHeartRate(timeMs, bpm))
     }
 
     fun tick(nowMs: Long) {
@@ -155,7 +165,7 @@ object RideController {
         if (isActive) return
         val entries = store.read(dir)
         val last = entries.maxOfOrNull { it.timeMs } ?: return
-        val s = RideSession.replay(entries)
+        val s = RideSession.replay(entries, rideSettings())
         val stop = s.stop(last)
         JournalWriter(store.journal(dir)).use { w -> stop.forEach(w::append); w.sync() }
         _unfinished.value = null
@@ -171,7 +181,7 @@ object RideController {
         withContext(Dispatchers.IO) {
             val fit = store.fit(dir)
             try {
-                FitExporter.export(store.read(dir), fit)
+                FitExporter.export(store.read(dir), fit, rideSettings())
                 FinishedRide(dir, snap, laps, fit)
             } catch (e: Exception) {
                 FinishedRide(dir, snap, laps, null, error = "FIT export failed: ${e.message}")

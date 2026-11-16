@@ -62,13 +62,14 @@ object FitExporter {
                         encoder.write(timerEvent(e.timeMs, EventType.STOP_ALL))
                         stopTimeMs = e.timeMs
                     }
-                    is JournalEntry.Lap -> Unit
+                    is JournalEntry.Lap, is JournalEntry.HeartRate -> Unit
                     is JournalEntry.Sample -> {
                         // FIT timestamps are whole seconds: keep one record per second, while recording.
                         val second = e.fix.timeMs / 1000
                         if (session.status == RideStatus.RECORDING && second > lastRecordSecond) {
                             lastRecordSecond = second
-                            encoder.write(record(e.fix, session.snapshot(e.fix.timeMs).distanceM))
+                            val snap = session.snapshot(e.fix.timeMs)
+                            encoder.write(record(e.fix, snap.distanceM, snap.hrBpm))
                         }
                     }
                 }
@@ -91,6 +92,9 @@ object FitExporter {
                 maxSpeed = snap.maxSpeedMps.toFloat()
                 enhancedAvgSpeed = snap.avgSpeedMps.toFloat()
                 enhancedMaxSpeed = snap.maxSpeedMps.toFloat()
+                snap.avgHr?.let { avgHeartRate = it.toShort() }
+                snap.maxHr?.let { maxHeartRate = it.toShort() }
+                snap.hrZoneMs.forEachIndexed { i, ms -> setTimeInHrZone(i, (ms / 1000.0).toFloat()) }
                 sport = Sport.CYCLING
                 subSport = SubSport.ROAD
                 firstLapIndex = 0
@@ -115,7 +119,8 @@ object FitExporter {
         }
     }
 
-    private fun record(fix: Fix, distanceM: Double) = RecordMesg().apply {
+    private fun record(fix: Fix, distanceM: Double, hr: Int?) = RecordMesg().apply {
+        hr?.let { heartRate = it.toShort() }
         timestamp = dt(fix.timeMs)
         positionLat = (fix.lat * SEMICIRCLES_PER_DEGREE).roundToLong().toInt()
         positionLong = (fix.lon * SEMICIRCLES_PER_DEGREE).roundToLong().toInt()
@@ -134,6 +139,8 @@ object FitExporter {
         totalAscent = l.ascentM.roundToInt()
         enhancedAvgSpeed = l.avgSpeedMps.toFloat()
         avgSpeed = l.avgSpeedMps.toFloat()
+        l.avgHr?.let { avgHeartRate = it.toShort() }
+        l.maxHr?.let { maxHeartRate = it.toShort() }
         sport = Sport.CYCLING
         event = Event.LAP
         eventType = EventType.STOP

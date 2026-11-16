@@ -108,6 +108,7 @@ class RideService : Service() {
     private fun startUpdates() {
         if (running) return
         running = true
+        HrMonitor.acquire("ride")
         val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
             .setMinUpdateIntervalMillis(1000)
             .setWaitForAccurateLocation(false)
@@ -119,6 +120,7 @@ class RideService : Service() {
     private fun stopUpdates() {
         if (!running) return
         running = false
+        HrMonitor.release("ride")
         fused.removeLocationUpdates(callback)
         handler.removeCallbacks(ticker)
     }

@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.painmeter.HrState
 import java.io.File
 
 /**
@@ -28,11 +29,13 @@ import java.io.File
 fun HomeScreen(
     hasPermission: Boolean,
     gpsAccuracyM: Double?,
+    hr: HrState,
     unfinished: File?,
     onStart: () -> Unit,
     onGrant: () -> Unit,
     onResume: (File) -> Unit,
     onSaveUnfinished: (File) -> Unit,
+    onParameters: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().background(Pm.Background).padding(16.dp),
@@ -51,7 +54,16 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(gpsText, color = gpsColor, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            Text("Heart rate: phase 2 · Power: phase 3", color = Pm.Muted, fontSize = 14.sp)
+            val (hrText, hrColor) = when (hr) {
+                HrState.NotPaired -> "Heart rate: no strap paired (Parameters)" to Pm.Muted
+                HrState.NoPermission -> "Heart rate: Bluetooth permission needed" to Pm.Amber
+                HrState.BluetoothOff -> "Heart rate: Bluetooth is off" to Pm.Amber
+                is HrState.Connecting -> "Heart rate: connecting to ${hr.name}…" to Pm.Amber
+                is HrState.Connected -> "Heart rate: ${hr.bpm?.let { "$it bpm" } ?: "no skin contact"}" to
+                    (if (hr.bpm != null) Pm.Green else Pm.Amber)
+            }
+            Text(hrText, color = hrColor, fontSize = 16.sp)
+            Text("Power: phase 3", color = Pm.Muted, fontSize = 14.sp)
         }
 
         if (unfinished != null) {
@@ -69,6 +81,10 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.weight(1f))
+
+        Row(Modifier.fillMaxWidth().height(56.dp)) {
+            BigButton("PARAMETERS", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onParameters)
+        }
 
         Row(Modifier.fillMaxWidth().height(96.dp)) {
             if (hasPermission) {

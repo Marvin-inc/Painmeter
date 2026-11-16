@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Looper
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
@@ -20,6 +21,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.painmeter.ui.HomeScreen
+import app.painmeter.ui.ParametersScreen
 import app.painmeter.ui.RideScreen
 import app.painmeter.ui.SummaryScreen
 import com.google.android.gms.location.LocationCallback
@@ -31,9 +33,11 @@ import com.google.android.gms.location.Priority
 class MainActivity : ComponentActivity() {
 
     private var hasLocation by mutableStateOf(false)
+    private var showParameters by mutableStateOf(false)
 
     private val askPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         hasLocation = locationGranted()
+        HrMonitor.refresh()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,38 +49,71 @@ class MainActivity : ComponentActivity() {
             val ride by RideController.ride.collectAsStateWithLifecycle()
             val finished by RideController.finished.collectAsStateWithLifecycle()
             val unfinished by RideController.unfinished.collectAsStateWithLifecycle()
+            val hr by HrMonitor.state.collectAsStateWithLifecycle()
+            val settings by Settings.current.collectAsStateWithLifecycle()
             val current = ride
             val done = finished
+            BackHandler(enabled = showParameters && current == null) { showParameters = false }
             when {
                 current != null -> RideScreen(
                     snap = current,
+                    hr = hr,
                     onLap = { RideController.lap() },
                     onTogglePause = { RideController.togglePause() },
                     onStop = { RideService.stop(this) },
                 )
-                done != null -> SummaryScreen(done, onShare = { shareFit(done) }, onDone = { RideController.closeSummary() })
+                done != null -> SummaryScreen(done, settings.hrZones, onShare = { shareFit(done) }, onDone = { RideController.closeSummary() })
+                showParameters -> {
+                    val found by HrMonitor.found.collectAsStateWithLifecycle()
+                    val scanning by HrMonitor.scanning.collectAsStateWithLifecycle()
+                    ParametersScreen(
+                        settings = settings,
+                        hr = hr,
+                        found = found,
+                        scanning = scanning,
+                        onChange = { next -> Settings.update { next } },
+                        onScan = { if (HrMonitor.hasPermission()) HrMonitor.startScan() else requestPermissions() },
+                        onPair = { HrMonitor.pair(it) },
+                        onForget = { HrMonitor.forget() },
+                        onBack = { HrMonitor.stopScan(); showParameters = false },
+                    )
+                }
                 else -> {
                     var accuracy by remember { mutableStateOf<Double?>(null) }
                     GpsPreview(enabled = hasLocation) { accuracy = it }
                     HomeScreen(
                         hasPermission = hasLocation,
                         gpsAccuracyM = accuracy,
+                        hr = hr,
                         unfinished = unfinished,
                         onStart = { RideService.start(this) },
                         onGrant = { requestPermissions() },
                         onResume = { RideService.resume(this, it) },
                         onSaveUnfinished = { RideController.finishUnfinished(it) },
+                        onParameters = { showParameters = true },
                     )
                 }
             }
         }
-        if (!hasLocation) requestPermissions()
+        if (!hasLocation || !HrMonitor.hasPermission()) requestPermissions()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        HrMonitor.acquire("ui")
+    }
+
+    override fun onStop() {
+        HrMonitor.stopScan()
+        HrMonitor.release("ui")
+        super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
         hasLocation = locationGranted()
         RideController.refreshUnfinished()
+        HrMonitor.refresh()
     }
 
     /** Volume down = lap while a ride is running (SPEC §8). Otherwise the key works as usual. */
@@ -99,7 +136,8 @@ class MainActivity : ComponentActivity() {
     private fun requestPermissions() {
         val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) perms += Manifest.permission.POST_NOTIFICATIONS
-        askPermissions.launch(perms.toTypedArray())
+        perms += HrMonitor.requiredPermissions()
+        askPermissions.launch(perms.distinct().toTypedArray())
     }
 
     private fun shareFit(ride: FinishedRide) {

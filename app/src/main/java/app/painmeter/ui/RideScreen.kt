@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.painmeter.HrState
 import app.painmeter.RideController
 import app.painmeter.core.RideSnapshot
 import app.painmeter.core.RideStatus
@@ -51,9 +52,15 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** The Data page (SPEC §9.2). Power, HR and gradient arrive in phases 2 and 3. */
+/** The Data page (SPEC §9.2). Power and gradient arrive in phase 3. */
 @Composable
-fun RideScreen(snap: RideSnapshot, onLap: () -> Unit, onTogglePause: () -> Unit, onStop: () -> Unit) {
+fun RideScreen(
+    snap: RideSnapshot,
+    hr: HrState,
+    onLap: () -> Unit,
+    onTogglePause: () -> Unit,
+    onStop: () -> Unit,
+) {
     val context = LocalContext.current
     val view = LocalView.current
     DisposableEffect(Unit) {
@@ -86,7 +93,7 @@ fun RideScreen(snap: RideSnapshot, onLap: () -> Unit, onTogglePause: () -> Unit,
                     (if (paused) "❚❚ PAUSED" else "● REC") to (if (paused) Pm.Amber else Pm.Rec),
                     (snap.gpsAccuracyM?.let { "GPS ${it.toInt()} m" } ?: "GPS --") to
                         (if (snap.gpsAccuracyM == null) Pm.Rec else Pm.Muted),
-                    "HR --" to Pm.Disabled,
+                    hrStatus(hr),
                     (battery?.let { "$it %" } ?: "") to Pm.Muted,
                 )
             )
@@ -113,7 +120,7 @@ fun RideScreen(snap: RideSnapshot, onLap: () -> Unit, onTogglePause: () -> Unit,
                 )
                 Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DataField("SPEED · km/h", Format.speedKmh(snap.speedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 88.sp)
-                    DataField("HR · bpm · zone", "--", Modifier.weight(1f).fillMaxHeight(), valueSize = 88.sp, valueColor = Pm.Disabled)
+                    HrField(snap.hrBpm, snap.hrZone, Modifier.weight(1f).fillMaxHeight(), valueSize = 88.sp)
                 }
                 Row(Modifier.fillMaxWidth().weight(0.62f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     DataField("CLOCK", clock, Modifier.weight(1f).fillMaxHeight())
@@ -146,6 +153,24 @@ fun RideScreen(snap: RideSnapshot, onLap: () -> Unit, onTogglePause: () -> Unit,
             }
         }
     }
+}
+
+/** The combined HR field: "152 Z3", in the zone colour, with a zone bar along the bottom. */
+@Composable
+fun HrField(bpm: Int?, zone: Int?, modifier: Modifier, valueSize: androidx.compose.ui.unit.TextUnit, label: String = "HR · bpm · zone") {
+    if (bpm == null) {
+        DataField(label, "--", modifier, valueSize = valueSize, valueColor = Pm.Disabled)
+    } else {
+        DataField(label, bpm.toString(), modifier, valueSize = valueSize, suffix = zone?.let { "Z$it" }, accent = Pm.zoneColor(zone))
+    }
+}
+
+fun hrStatus(hr: HrState): Pair<String, Color> = when (hr) {
+    is HrState.Connected -> (if (hr.bpm != null) "HR ✓" else "HR no contact") to (if (hr.bpm != null) Pm.Muted else Pm.Amber)
+    is HrState.Connecting -> "HR …" to Pm.Amber
+    HrState.NotPaired -> "HR --" to Pm.Disabled
+    HrState.BluetoothOff -> "BT off" to Pm.Amber
+    HrState.NoPermission -> "HR ✕" to Pm.Amber
 }
 
 /** A large touch target. With [onLongClick] only, a short tap does nothing (stop needs a hold). */

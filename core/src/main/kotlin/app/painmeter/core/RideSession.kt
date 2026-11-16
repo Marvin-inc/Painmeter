@@ -10,7 +10,28 @@ data class RideSettings(
     val maxAccuracyM: Double = 25.0,
     /** Elevation gain counts a rise only once it exceeds this since the last low point. */
     val elevationHysteresisM: Double = 4.0,
+    val hrZones: HrZones = HrZones.fromMaxHr(185),
 )
+
+/** Time-weighted heart-rate statistics over the recorded time. */
+class HrStats {
+    private var weightedSum = 0.0
+    private var weightMs = 0L
+    var max: Int? = null
+        private set
+    /** Milliseconds spent in zones 1..5 (index 0..4). */
+    val zoneMs = LongArray(5)
+
+    fun add(bpm: Int, weightMs: Long, zone: Int) {
+        if (weightMs <= 0) return
+        weightedSum += bpm.toDouble() * weightMs
+        this.weightMs += weightMs
+        zoneMs[zone - 1] += weightMs
+        max = maxOf(max ?: bpm, bpm)
+    }
+
+    val average: Int? get() = if (weightMs > 0) Math.round(weightedSum / weightMs).toInt() else null
+}
 
 enum class RideStatus { IDLE, RECORDING, PAUSED, FINISHED }
 
@@ -22,6 +43,8 @@ data class LapSummary(
     val distanceM: Double,
     val ascentM: Double,
     val endedBySession: Boolean,
+    val avgHr: Int? = null,
+    val maxHr: Int? = null,
 ) {
     val avgSpeedMps: Double get() = if (timerMs > 0) distanceM / (timerMs / 1000.0) else 0.0
 }
@@ -43,6 +66,14 @@ data class RideSnapshot(
     val lastLap: LapSummary?,
     val gpsAccuracyM: Double?,
     val gpsAgeMs: Long?,
+    /** Latest heart rate, null when no reading in the last 5 s. */
+    val hrBpm: Int? = null,
+    val hrZone: Int? = null,
+    val avgHr: Int? = null,
+    val maxHr: Int? = null,
+    val lapAvgHr: Int? = null,
+    /** Recorded time spent in HR zones 1..5, milliseconds. */
+    val hrZoneMs: List<Long> = List(5) { 0L },
 ) {
     val lapAvgSpeedMps: Double get() = if (lapTimeMs > 0) lapDistanceM / (lapTimeMs / 1000.0) else 0.0
 }
@@ -101,14 +132,20 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
 
     private var slowSinceMs: Long? = null
 
+    private var lastHrTimeMs: Long? = null
+    private var lastHrBpm: Int? = null
+    private var rideHr = HrStats()
+    private var lapHr = HrStats()
+
     val completedLaps: List<LapSummary> get() = laps
 
     // ---------------------------------------------------------------- live commands
 
     fun start(timeMs: Long): List<JournalEntry> = emit(JournalEntry.Start(timeMs))
 
-    fun onFix(fix: Fix): List<JournalEntry> {
+    fun onFix(raw: Fix): List<JournalEntry> {
         if (status != RideStatus.RECORDING && status != RideStatus.PAUSED) return emptyList()
+        val fix = withSpeed(raw)
         val out = mutableListOf<JournalEntry>()
         val speed = if (settings.autoPause) fix.speedMps else null
         // Resume before the sample, so the distance covered in that second counts.
@@ -127,6 +164,23 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             }
         }
         return out
+    }
+
+    /** A heart-rate reading from the strap. */
+    fun onHeartRate(timeMs: Long, bpm: Int): List<JournalEntry> =
+        if ((status == RideStatus.RECORDING || status == RideStatus.PAUSED) && bpm in 25..250)
+            emit(JournalEntry.HeartRate(timeMs, bpm)) else emptyList()
+
+    /**
+     * Some sources (the emulator, some phones without a GPS lock) give no Doppler speed: derive it
+     * from the distance to the previous fix, so speed and auto-pause still work.
+     */
+    private fun withSpeed(fix: Fix): Fix {
+        if (fix.speedMps != null) return fix
+        val prev = lastFix ?: return fix
+        val dt = (fix.timeMs - prev.timeMs) / 1000.0
+        if (dt <= 0 || dt > 10) return fix
+        return fix.copy(speedMps = Geo.distanceM(prev, fix) / dt)
     }
 
     fun lap(timeMs: Long): List<JournalEntry> =
@@ -157,6 +211,7 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
                 lapStartTimeMs = e.timeMs
             }
             is JournalEntry.Sample -> applyFix(e.fix)
+            is JournalEntry.HeartRate -> applyHr(e.timeMs, e.bpm)
             is JournalEntry.Lap -> closeLap(e.timeMs, bySession = false)
             is JournalEntry.Pause -> if (status == RideStatus.RECORDING) {
                 timerMs += e.timeMs - (segmentStartMs ?: e.timeMs)
@@ -194,6 +249,19 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
 
     private fun speedOf(fix: Fix): Double? = fix.speedMps
 
+    private fun applyHr(timeMs: Long, bpm: Int) {
+        if (status == RideStatus.RECORDING) {
+            // Each reading counts for the time since the previous one (1 s for the first), capped at
+            // 2 s so a strap that drops out does not stretch its last value.
+            val weight = lastHrTimeMs?.let { (timeMs - it).coerceIn(0, 2_000) } ?: 1_000
+            val zone = settings.hrZones.zoneOf(bpm)
+            rideHr.add(bpm, weight, zone)
+            lapHr.add(bpm, weight, zone)
+        }
+        lastHrTimeMs = timeMs
+        lastHrBpm = bpm
+    }
+
     private fun closeLap(timeMs: Long, bySession: Boolean) {
         val timerNow = currentTimerMs(timeMs)
         laps += LapSummary(
@@ -204,7 +272,10 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             distanceM = distanceM - lapStartDistanceM,
             ascentM = elevation.totalM - lapStartAscentM,
             endedBySession = bySession,
+            avgHr = lapHr.average,
+            maxHr = lapHr.max,
         )
+        lapHr = HrStats()
         lapStartTimeMs = timeMs
         lapStartTimerMs = timerNow
         lapStartDistanceM = distanceM
@@ -237,8 +308,21 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             lastLap = laps.lastOrNull(),
             gpsAccuracyM = if (fresh) fix?.accuracyM else null,
             gpsAgeMs = age,
+            hrBpm = currentHr(nowMs),
+            hrZone = currentHr(nowMs)?.let { settings.hrZones.zoneOf(it) },
+            avgHr = rideHr.average,
+            maxHr = rideHr.max,
+            lapAvgHr = lapHr.average,
+            hrZoneMs = rideHr.zoneMs.toList(),
         )
     }
+
+    private fun currentHr(nowMs: Long): Int? {
+        val t = lastHrTimeMs ?: return null
+        return if (nowMs - t <= 5_000) lastHrBpm else null
+    }
+
+    val hrZones: HrZones get() = settings.hrZones
 
     companion object {
         /** Rebuilds a ride from its journal (crash recovery, export, history). */

@@ -23,6 +23,10 @@ object Pm {
     val Blue = Color(0xFF2F6FED)
     val Green = Color(0xFF3BC77A)
 
+    /** HR zones 1..5 (SPEC §9.1): grey, blue, green, orange, red. */
+    val Zones = listOf(Color(0xFF9AA4B2), Color(0xFF4C9AFF), Color(0xFF3BC77A), Color(0xFFFF9F43), Color(0xFFFF5A5F))
+    fun zoneColor(zone: Int?): Color? = zone?.let { Zones.getOrNull(it - 1) }
+
     val Numbers = FontFamily(
         Font(R.font.barlow_condensed_bold, FontWeight.Bold),
         Font(R.font.barlow_condensed_semibold, FontWeight.SemiBold),
