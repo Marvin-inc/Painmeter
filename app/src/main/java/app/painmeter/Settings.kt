@@ -31,6 +31,8 @@ data class UserSettings(
     val climbMinGain: Double = 25.0,
     val climbAutoSwitch: Boolean = true,
     /** Last calibration applied: when, and the uncertainty of CdA and Crr. */
+    /** Download a missing elevation tile during the ride (about 10–25 MB, may use mobile data). */
+    val autoElevation: Boolean = true,
     val calibDateMs: Long? = null,
     val calibSeCda: Double? = null,
     val calibSeCrr: Double? = null,
@@ -82,6 +84,7 @@ object Settings {
             .putString("climbLength", next.climbMinLength.toString())
             .putString("climbGain", next.climbMinGain.toString())
             .putBoolean("climbSwitch", next.climbAutoSwitch)
+            .putBoolean("autoElevation", next.autoElevation)
             .putLong("calibDate", next.calibDateMs ?: -1)
             .putString("calibSeCda", next.calibSeCda?.toString())
             .putString("calibSeCrr", next.calibSeCrr?.toString())
@@ -114,6 +117,7 @@ object Settings {
             climbMinLength = dbl("climbLength", d.climbMinLength),
             climbMinGain = dbl("climbGain", d.climbMinGain),
             climbAutoSwitch = prefs.getBoolean("climbSwitch", d.climbAutoSwitch),
+            autoElevation = prefs.getBoolean("autoElevation", d.autoElevation),
             calibDateMs = prefs.getLong("calibDate", -1).takeIf { it > 0 },
             calibSeCda = prefs.getString("calibSeCda", null)?.toDoubleOrNull(),
             calibSeCrr = prefs.getString("calibSeCrr", null)?.toDoubleOrNull(),

@@ -74,6 +74,10 @@ object RideController {
     private fun rideSettings() = Settings.current.value.toRideSettings()
 
     private lateinit var appContext: Context
+    private var terrainGrade = newTerrainGrade()
+
+    private fun newTerrainGrade() =
+        app.painmeter.core.power.TerrainGrade({ lat, lon -> ElevationStore.elevation(lat, lon) })
 
     // ------------------------------------------------------------ navigation (SPEC §9.5)
 
@@ -220,6 +224,7 @@ object RideController {
         val dir = store.newRideDir(nowMs)
         open(dir, RideSession(rideSettings()))
         record(session!!.start(nowMs))
+        terrainGrade = newTerrainGrade()
         detector = app.painmeter.core.climb.LiveClimbDetector(Settings.current.value.climbs)
         finishedClimb = null
         _climb.value = ClimbUi()
@@ -259,7 +264,9 @@ object RideController {
 
     fun onFix(raw: Fix) {
         val s = session ?: return
-        var fix = raw.copy(demAltitudeM = ElevationStore.elevation(raw.lat, raw.lon))
+        // Gradient read on the elevation tiles around the rider, ahead included (no lag).
+        val terrain = if ((raw.accuracyM ?: 0.0) <= 25) terrainGrade.update(raw.lat, raw.lon) else null
+        var fix = raw.copy(demAltitudeM = ElevationStore.elevation(raw.lat, raw.lon), terrainGradePercent = terrain)
         lastFix = raw
         updateNav(fix)
         // On the route, the route profile gives the gradient without lag (SPEC §4).

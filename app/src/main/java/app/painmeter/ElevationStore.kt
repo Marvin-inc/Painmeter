@@ -58,7 +58,11 @@ object ElevationStore {
         val name = HgtTile.nameFor(lat, lon)
         loaded[name]?.let { return it.elevation(lat, lon) }
         if (name in missing || name in loading) return null
-        if (!file(name).exists()) { missing += name; return null }
+        if (!file(name).exists()) {
+            missing += name
+            if (Settings.current.value.autoElevation) fetchInBackground(name)
+            return null
+        }
         loading += name
         scope.launch {
             try {
@@ -101,6 +105,19 @@ object ElevationStore {
                 withContext(Dispatchers.Main) { refreshList() }
             }
             _download.value = TileDownload(names.size, names.size, failed, running = false)
+        }
+    }
+
+    private val autoTried = ConcurrentHashMap.newKeySet<String>()
+
+    /** Fetches one missing tile during a ride, once per tile per app start. */
+    private fun fetchInBackground(name: String) {
+        if (!autoTried.add(name)) return
+        scope.launch {
+            if (fetch(name)) {
+                missing -= name
+                withContext(Dispatchers.Main) { refreshList() }
+            }
         }
     }
 

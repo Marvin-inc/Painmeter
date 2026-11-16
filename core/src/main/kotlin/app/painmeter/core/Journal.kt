@@ -33,7 +33,7 @@ sealed interface JournalEntry {
  * One line of text per entry, comma separated, empty field = unknown:
  * ```
  * START,<t>
- * S,<t>,<lat>,<lon>,<alt>,<speed>,<accuracy>,<dem alt>,<route grade %>
+ * S,<t>,<lat>,<lon>,<alt>,<speed>,<accuracy>,<dem alt>,<route grade %>,<terrain grade %>
  * D,<t>,<1|0>                                   (On a wheel / Solo)
  * W,<t>,<wind m/s>,<wind from °>,<°C>,<RH %>,<Pa MSL>
  * H,<t>,<bpm>
@@ -46,7 +46,7 @@ object JournalCodec {
     fun encode(e: JournalEntry): String = when (e) {
         is JournalEntry.Start -> "START,${e.timeMs}"
         is JournalEntry.Sample -> with(e.fix) {
-            "S,$timeMs,${num(lat, 7)},${num(lon, 7)},${num(altitudeM, 1)},${num(speedMps, 2)},${num(accuracyM, 1)},${num(demAltitudeM, 1)},${num(routeGradePercent, 2)}"
+            "S,$timeMs,${num(lat, 7)},${num(lon, 7)},${num(altitudeM, 1)},${num(speedMps, 2)},${num(accuracyM, 1)},${num(demAltitudeM, 1)},${num(routeGradePercent, 2)},${num(terrainGradePercent, 2)}"
         }
         is JournalEntry.HeartRate -> "H,${e.timeMs},${e.bpm}"
         is JournalEntry.Lap -> "LAP,${e.timeMs}"
@@ -74,6 +74,7 @@ object JournalCodec {
                     accuracyM = f[6].toDoubleOrNull(),
                     demAltitudeM = f.getOrNull(7)?.toDoubleOrNull(),
                     routeGradePercent = f.getOrNull(8)?.toDoubleOrNull(),
+                    terrainGradePercent = f.getOrNull(9)?.toDoubleOrNull(),
                 )
             )
             "H" -> JournalEntry.HeartRate(f[1].toLong(), f[2].toInt())

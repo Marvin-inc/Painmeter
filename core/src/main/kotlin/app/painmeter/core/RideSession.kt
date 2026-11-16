@@ -287,7 +287,7 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             val p = engine.onInput(
                 PowerInput(
                     fix.timeMs, fix.lat, fix.lon, fix.speedMps, fix.demAltitudeM ?: fix.altitudeM, source, fix.accuracyM,
-                    gradeOverridePercent = fix.routeGradePercent,
+                    gradeOverridePercent = fix.routeGradePercent ?: fix.terrainGradePercent,
                 )
             )
             p.power1Hz?.let { ridePower.add(it, p.power30s); lapPower.add(it, p.power30s) }

@@ -100,6 +100,7 @@ class LivePowerEngine(private val params: PowerParams) {
 
     /** Forget the speed history (after a pause), so no window spans the stop. */
     fun reset() {
+        gpsJumpSinceMs = null
         ticks.clear()
         lastInput = null
         filteredSpeed = null
@@ -125,7 +126,8 @@ class LivePowerEngine(private val params: PowerParams) {
 
         // Distance and gradient over the last 100 m travelled.
         if (prev != null) distanceM += v * dtS
-        input.elevationM?.let { e ->
+        val elevation = if (input.elevationSource == ElevationSource.GPS) gpsFilter(input.timeMs, input.elevationM) else input.elevationM
+        elevation?.let { e ->
             profile.addLast(distanceM to e)
             while (profile.size > 2 && profile.first().first < distanceM - GRADE_WINDOW_M && profile.elementAt(1).first <= distanceM - GRADE_WINDOW_M) {
                 profile.removeFirst()
@@ -172,6 +174,34 @@ class LivePowerEngine(private val params: PowerParams) {
             drafting = drafting,
         )
         return state
+    }
+
+    // Phone GPS altitude jumps by 10–20 m at times (a new satellite fix, a switch of method).
+    // No cyclist climbs faster than about 2 m/s, so a bigger jump is held back; if the new level
+    // lasts 15 s it is taken, and the gradient history starts again from it (no false climb).
+    private var gpsLast: Double? = null
+    private var gpsLastMs = 0L
+    private var gpsJumpSinceMs: Long? = null
+
+    private fun gpsFilter(timeMs: Long, alt: Double?): Double? {
+        alt ?: return null
+        val last = gpsLast ?: run { gpsLast = alt; gpsLastMs = timeMs; return alt }
+        // Allowed change since the previous sample (not since the last accepted one, or a held-back
+        // jump would end up inside the tolerance as time passes).
+        val dt = ((timeMs - gpsLastMs) / 1000.0).coerceIn(1.0, 5.0)
+        gpsLastMs = timeMs
+        if (kotlin.math.abs(alt - last) <= 3 + 2.0 * dt) {
+            gpsLast = alt; gpsJumpSinceMs = null
+            return alt
+        }
+        val since = gpsJumpSinceMs ?: timeMs.also { gpsJumpSinceMs = it }
+        if (timeMs - since >= 15_000) {
+            gpsLast = alt; gpsJumpSinceMs = null
+            profile.clear()
+            grade = 0.0
+            return alt
+        }
+        return null
     }
 
     /** Average power over the last [ms], or null until that much history exists. */

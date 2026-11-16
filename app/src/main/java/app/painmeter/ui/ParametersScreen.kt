@@ -165,6 +165,11 @@ fun ParametersScreen(
             }
             Section("ELEVATION DATA") {
                 ElevationPanel(elevation, onDownloadElevation, onDeleteElevation)
+                ToggleRow(
+                    "Download missing tiles during the ride",
+                    "When you ride off the downloaded area (about 10–25 MB per tile, may use mobile data)",
+                    settings.autoElevation,
+                ) { onChange(settings.copy(autoElevation = it)) }
             }
             Section("CLIMBS") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

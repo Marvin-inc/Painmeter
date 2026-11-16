@@ -125,6 +125,33 @@ class LivePowerEngineTest {
     }
 
     @Test
+    fun gpsAltitudeJumpsAreIgnored() {
+        // Flat road, but the phone's altitude jumps up 18 m for 10 s, then back.
+        val e = LivePowerEngine(params)
+        var lat = 45.0
+        val s = (0 until 120).map { i ->
+            lat += 6.0 / 111_195.0
+            val alt = if (i in 60..69) 218.0 else 200.0
+            e.onInput(PowerInput(i * 1000L, lat, 5.7, 6.0, alt, ElevationSource.GPS, 4.0))
+        }
+        s.drop(30).forEach { assertEquals(0.0, it.gradePercent!!, 1e-9) }
+        assertEquals(expected(6.0, 0.0), s.last().power10s!!, 1.0)
+    }
+
+    @Test
+    fun terrainGradeHasNoLag() {
+        // Elevation model: flat to 1000 m north, then 8 % up.
+        val metresNorth = { lat: Double -> (lat - 45.0) * 111_195.0 }
+        val tg = TerrainGrade({ lat, _ -> 200 + (metresNorth(lat) - 1000).coerceAtLeast(0.0) * 0.08 })
+        var lat = 45.0
+        val grades = (0 until 300).map { lat += 5.0 / 111_195.0; tg.update(lat, 5.7) }
+        // At the foot of the climb (1000 m) the gradient already shows half of it; 150 m in, all of it.
+        assertEquals(4.0, grades[199]!!, 1.0)
+        assertEquals(8.0, grades[229]!!, 0.3)
+        assertEquals(0.0, grades[150]!!, 0.3) // 250 m before: still flat
+    }
+
+    @Test
     fun poorGpsIsUnreliable() {
         assertFalse(run(LivePowerEngine(params), 20, accuracy = 20.0) { 8.0 }.last().reliable)
     }
@@ -194,7 +221,7 @@ class LivePowerEngineTest {
     @Test
     fun journalKeepsDemDraftAndWeather() {
         val entries = listOf(
-            JournalEntry.Sample(Fix(1, 45.0, 5.0, 210.0, 8.0, 4.0, demAltitudeM = 205.5, routeGradePercent = 6.25)),
+            JournalEntry.Sample(Fix(1, 45.0, 5.0, 210.0, 8.0, 4.0, demAltitudeM = 205.5, routeGradePercent = 6.25, terrainGradePercent = -1.5)),
             JournalEntry.Draft(2, true),
             JournalEntry.Weather(3, WeatherNow(4.5, 270.0, 18.5, 60.0, 101_200.0)),
         )

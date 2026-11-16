@@ -76,9 +76,16 @@ Priority of elevation sources:
    sampled every 10 m against the elevation tiles when it is loaded, smoothed over 100 m
    (centred, allowed since the whole profile is known). Gradient is read **at the rider's
    distance along the route**, so it has no lag.
-2. **Elevation tiles under the track**: the elevation at each 1 Hz position, smoothed over the
-   last 100 m travelled. Gradient = slope over that window (lags by about 50 m).
-3. **GPS altitude**: recorded, used only as a fallback when no tile covers the area.
+2. **Elevation tiles around the rider**: the tile elevation is sampled every 10 m over the last
+   150 m ridden and the next 150 m straight ahead along the heading, and the gradient is the slope
+   of a straight line fitted through them. No lag (the terrain is a map, it can be read ahead), and
+   the ±150 m fit smooths the bumps of the 30 m data (buildings, trees, bridges). Checked on a real
+   town ride: a 100 m trailing window was late on the climb and ±3 % noisy on the flat; this is
+   on time and ±1.5 %.
+3. **GPS altitude**: recorded, used only as a fallback when no tile covers the area. It lags by
+   100–200 m and jumps by 10–20 m at times; jumps faster than 2 m/s are held back (taken only if
+   the new level lasts 15 s), and power is shown grey. A missing tile is downloaded during the ride
+   (setting on by default), so this fallback should be rare.
 
 - Elevation tiles: AWS Terrain Tiles open dataset, "skadi" layout: 1°×1° tiles in the SRTM HGT
   format at 1 arc-second (~30 m), gzip, about 10–25 MB each
