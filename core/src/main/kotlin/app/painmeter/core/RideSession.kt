@@ -1,5 +1,13 @@
 package app.painmeter.core
 
+import app.painmeter.core.power.ElevationSource
+import app.painmeter.core.power.LivePowerEngine
+import app.painmeter.core.power.PowerInput
+import app.painmeter.core.power.PowerParams
+import app.painmeter.core.power.PowerState
+import app.painmeter.core.power.PowerStats
+import app.painmeter.core.power.WeatherNow
+
 /** Thresholds of SPEC §3. Speeds in m/s. */
 data class RideSettings(
     val autoPause: Boolean = true,
@@ -11,6 +19,7 @@ data class RideSettings(
     /** Elevation gain counts a rise only once it exceeds this since the last low point. */
     val elevationHysteresisM: Double = 4.0,
     val hrZones: HrZones = HrZones.fromMaxHr(185),
+    val power: PowerParams = PowerParams(),
 )
 
 /** Time-weighted heart-rate statistics over the recorded time. */
@@ -45,6 +54,8 @@ data class LapSummary(
     val endedBySession: Boolean,
     val avgHr: Int? = null,
     val maxHr: Int? = null,
+    val avgPower: Double? = null,
+    val maxPower: Double? = null,
 ) {
     val avgSpeedMps: Double get() = if (timerMs > 0) distanceM / (timerMs / 1000.0) else 0.0
 }
@@ -74,6 +85,13 @@ data class RideSnapshot(
     val lapAvgHr: Int? = null,
     /** Recorded time spent in HR zones 1..5, milliseconds. */
     val hrZoneMs: List<Long> = List(5) { 0L },
+    /** Live power: windows, gradient, reliability, drafting, air (SPEC §5). */
+    val power: PowerState = PowerState(),
+    val avgPower: Double? = null,
+    val maxPower: Double? = null,
+    val normalizedPower: Double? = null,
+    val lapAvgPower: Double? = null,
+    val ftpW: Int = 250,
 ) {
     val lapAvgSpeedMps: Double get() = if (lapTimeMs > 0) lapDistanceM / (lapTimeMs / 1000.0) else 0.0
 }
@@ -137,6 +155,10 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
     private var rideHr = HrStats()
     private var lapHr = HrStats()
 
+    private val engine = LivePowerEngine(settings.power)
+    private val ridePower = PowerStats()
+    private var lapPower = PowerStats()
+
     val completedLaps: List<LapSummary> get() = laps
 
     // ---------------------------------------------------------------- live commands
@@ -183,6 +205,16 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
         return fix.copy(speedMps = Geo.distanceM(prev, fix) / dt)
     }
 
+    /** Solo / On a wheel (SPEC §6). */
+    fun setDraft(timeMs: Long, onWheel: Boolean): List<JournalEntry> =
+        if (status != RideStatus.IDLE && status != RideStatus.FINISHED && engine.drafting != onWheel)
+            emit(JournalEntry.Draft(timeMs, onWheel)) else emptyList()
+
+    fun onWeather(timeMs: Long, w: WeatherNow): List<JournalEntry> =
+        if (status != RideStatus.IDLE && status != RideStatus.FINISHED) emit(JournalEntry.Weather(timeMs, w)) else emptyList()
+
+    val drafting: Boolean get() = engine.drafting
+
     fun lap(timeMs: Long): List<JournalEntry> =
         if (status == RideStatus.RECORDING || status == RideStatus.PAUSED) emit(JournalEntry.Lap(timeMs)) else emptyList()
 
@@ -212,6 +244,8 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             }
             is JournalEntry.Sample -> applyFix(e.fix)
             is JournalEntry.HeartRate -> applyHr(e.timeMs, e.bpm)
+            is JournalEntry.Draft -> engine.setDrafting(e.onWheel)
+            is JournalEntry.Weather -> engine.setWeather(e.weather)
             is JournalEntry.Lap -> closeLap(e.timeMs, bySession = false)
             is JournalEntry.Pause -> if (status == RideStatus.RECORDING) {
                 timerMs += e.timeMs - (segmentStartMs ?: e.timeMs)
@@ -219,6 +253,7 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
                 status = RideStatus.PAUSED
                 autoPaused = e.auto
                 slowSinceMs = null
+                engine.reset()
             }
             is JournalEntry.Resume -> if (status == RideStatus.PAUSED) {
                 status = RideStatus.RECORDING
@@ -239,8 +274,19 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
         val good = fix.accuracyM == null || fix.accuracyM <= settings.maxAccuracyM
         if (status == RideStatus.RECORDING && good) {
             lastGoodFix?.let { distanceM += Geo.distanceM(it, fix) }
-            fix.altitudeM?.let { elevation.add(it) }
+            (fix.demAltitudeM ?: fix.altitudeM)?.let { elevation.add(it) }
             speedOf(fix)?.let { if (it > maxSpeedMps) maxSpeedMps = it }
+        }
+        if (status == RideStatus.RECORDING) {
+            val source = when {
+                fix.demAltitudeM != null -> ElevationSource.DEM
+                fix.altitudeM != null -> ElevationSource.GPS
+                else -> ElevationSource.NONE
+            }
+            val p = engine.onInput(
+                PowerInput(fix.timeMs, fix.lat, fix.lon, fix.speedMps, fix.demAltitudeM ?: fix.altitudeM, source, fix.accuracyM)
+            )
+            p.power1Hz?.let { ridePower.add(it, p.power30s); lapPower.add(it, p.power30s) }
         }
         // While paused the position still moves on, so a resume does not add the distance walked.
         if (good) lastGoodFix = fix
@@ -274,8 +320,11 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             endedBySession = bySession,
             avgHr = lapHr.average,
             maxHr = lapHr.max,
+            avgPower = lapPower.average,
+            maxPower = lapPower.max.takeIf { lapPower.average != null },
         )
         lapHr = HrStats()
+        lapPower = PowerStats()
         lapStartTimeMs = timeMs
         lapStartTimerMs = timerNow
         lapStartDistanceM = distanceM
@@ -314,6 +363,12 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             maxHr = rideHr.max,
             lapAvgHr = lapHr.average,
             hrZoneMs = rideHr.zoneMs.toList(),
+            power = if (status == RideStatus.RECORDING) engine.state else engine.state.copy(power10s = null, power30s = null, power1Hz = null),
+            avgPower = ridePower.average,
+            maxPower = ridePower.max.takeIf { ridePower.average != null },
+            normalizedPower = ridePower.normalized,
+            lapAvgPower = lapPower.average,
+            ftpW = settings.power.ftpW,
         )
     }
 

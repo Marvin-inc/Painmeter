@@ -2,6 +2,11 @@ package app.painmeter.core
 
 import com.garmin.fit.Activity
 import com.garmin.fit.ActivityMesg
+import com.garmin.fit.DeveloperDataIdMesg
+import com.garmin.fit.DeveloperField
+import com.garmin.fit.FieldDescriptionMesg
+import com.garmin.fit.FitBaseType
+import com.garmin.fit.MesgNum
 import com.garmin.fit.DateTime
 import com.garmin.fit.Event
 import com.garmin.fit.EventMesg
@@ -47,6 +52,7 @@ object FitExporter {
                 serialNumber = 1L
                 timeCreated = dt(start)
             })
+            val dev = DevFields.write(encoder)
 
             var lastRecordSecond = Long.MIN_VALUE
             var lastTimeMs = start
@@ -62,14 +68,14 @@ object FitExporter {
                         encoder.write(timerEvent(e.timeMs, EventType.STOP_ALL))
                         stopTimeMs = e.timeMs
                     }
-                    is JournalEntry.Lap, is JournalEntry.HeartRate -> Unit
+                    is JournalEntry.Lap, is JournalEntry.HeartRate, is JournalEntry.Draft, is JournalEntry.Weather -> Unit
                     is JournalEntry.Sample -> {
                         // FIT timestamps are whole seconds: keep one record per second, while recording.
                         val second = e.fix.timeMs / 1000
                         if (session.status == RideStatus.RECORDING && second > lastRecordSecond) {
                             lastRecordSecond = second
                             val snap = session.snapshot(e.fix.timeMs)
-                            encoder.write(record(e.fix, snap.distanceM, snap.hrBpm))
+                            encoder.write(record(e.fix, snap, dev))
                         }
                     }
                 }
@@ -93,6 +99,10 @@ object FitExporter {
                 enhancedAvgSpeed = snap.avgSpeedMps.toFloat()
                 enhancedMaxSpeed = snap.maxSpeedMps.toFloat()
                 snap.avgHr?.let { avgHeartRate = it.toShort() }
+                snap.avgPower?.let { avgPower = it.roundToInt() }
+                snap.maxPower?.let { maxPower = it.roundToInt() }
+                snap.normalizedPower?.let { normalizedPower = it.roundToInt() }
+                thresholdPower = snap.ftpW
                 snap.maxHr?.let { maxHeartRate = it.toShort() }
                 snap.hrZoneMs.forEachIndexed { i, ms -> setTimeInHrZone(i, (ms / 1000.0).toFloat()) }
                 sport = Sport.CYCLING
@@ -119,8 +129,12 @@ object FitExporter {
         }
     }
 
-    private fun record(fix: Fix, distanceM: Double, hr: Int?) = RecordMesg().apply {
-        hr?.let { heartRate = it.toShort() }
+    private fun record(fix: Fix, snap: RideSnapshot, dev: DevFields) = RecordMesg().apply {
+        val distanceM = snap.distanceM
+        snap.hrBpm?.let { heartRate = it.toShort() }
+        snap.power.power1Hz?.let { power = it.roundToInt() }
+        snap.power.gradePercent?.let { grade = it.toFloat() }
+        dev.addTo(this, fix, snap)
         timestamp = dt(fix.timeMs)
         positionLat = (fix.lat * SEMICIRCLES_PER_DEGREE).roundToLong().toInt()
         positionLong = (fix.lon * SEMICIRCLES_PER_DEGREE).roundToLong().toInt()
@@ -140,6 +154,8 @@ object FitExporter {
         enhancedAvgSpeed = l.avgSpeedMps.toFloat()
         avgSpeed = l.avgSpeedMps.toFloat()
         l.avgHr?.let { avgHeartRate = it.toShort() }
+        l.avgPower?.let { avgPower = it.roundToInt() }
+        l.maxPower?.let { maxPower = it.roundToInt() }
         l.maxHr?.let { maxHeartRate = it.toShort() }
         sport = Sport.CYCLING
         event = Event.LAP
@@ -158,4 +174,58 @@ object FitExporter {
 
     /** Seconds since the FIT epoch (1989-12-31T00:00:00Z). */
     private fun toFitSeconds(timeMs: Long): Long = timeMs / 1000 - DateTime.OFFSET / 1000
+}
+
+/**
+ * Painmeter's own record fields (SPEC §10), as FIT developer fields: GPS and elevation-tile
+ * altitude, On a wheel, power reliability, headwind and air density. Readable by intervals.icu,
+ * the web tool and anything using the FIT SDK; ignored by Strava.
+ */
+class DevFields private constructor(private val id: DeveloperDataIdMesg, private val defs: List<FieldDescriptionMesg>) {
+
+    fun addTo(r: RecordMesg, fix: Fix, snap: RideSnapshot) {
+        val values: List<Number?> = listOf(
+            fix.altitudeM?.toFloat(),
+            fix.demAltitudeM?.toFloat(),
+            if (snap.power.drafting) 1.toShort() else 0.toShort(),
+            if (snap.power.reliable) 1.toShort() else 0.toShort(),
+            snap.power.headwindMps.toFloat(),
+            snap.power.rho.toFloat(),
+        )
+        defs.forEachIndexed { i, def ->
+            val v = values[i] ?: return@forEachIndexed
+            r.addDeveloperField(DeveloperField(def, id).apply { setValue(v) })
+        }
+    }
+
+    companion object {
+        private val FIELDS = listOf(
+            Triple("gps_altitude", "m", FitBaseType.FLOAT32),
+            Triple("dem_altitude", "m", FitBaseType.FLOAT32),
+            Triple("draft_state", "", FitBaseType.UINT8),
+            Triple("power_quality", "", FitBaseType.UINT8),
+            Triple("wind_head", "m/s", FitBaseType.FLOAT32),
+            Triple("air_density", "kg/m3", FitBaseType.FLOAT32),
+        )
+
+        fun write(encoder: FileEncoder): DevFields {
+            val id = DeveloperDataIdMesg().apply {
+                developerDataIndex = 0
+                "painmeter.app.v1".toByteArray().take(16).forEachIndexed { i, b -> setApplicationId(i, b) }
+                applicationVersion = 1L
+            }
+            encoder.write(id)
+            val defs = FIELDS.mapIndexed { i, (name, units, type) ->
+                FieldDescriptionMesg().apply {
+                    developerDataIndex = 0
+                    fieldDefinitionNumber = i.toShort()
+                    fitBaseTypeId = type
+                    setFieldName(0, name)
+                    setUnits(0, units)
+                    nativeMesgNum = MesgNum.RECORD
+                }.also(encoder::write)
+            }
+            return DevFields(id, defs)
+        }
+    }
 }

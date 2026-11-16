@@ -1,5 +1,6 @@
 package app.painmeter.core
 
+import app.painmeter.core.power.WeatherNow
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
@@ -19,6 +20,10 @@ sealed interface JournalEntry {
     }
     data class HeartRate(override val timeMs: Long, val bpm: Int) : JournalEntry
     data class Lap(override val timeMs: Long) : JournalEntry
+    /** Rider switched between Solo (false) and On a wheel (true). */
+    data class Draft(override val timeMs: Long, val onWheel: Boolean) : JournalEntry
+    /** New weather from the forecast service. */
+    data class Weather(override val timeMs: Long, val weather: WeatherNow) : JournalEntry
     data class Pause(override val timeMs: Long, val auto: Boolean) : JournalEntry
     data class Resume(override val timeMs: Long, val auto: Boolean) : JournalEntry
     data class Stop(override val timeMs: Long) : JournalEntry
@@ -28,7 +33,9 @@ sealed interface JournalEntry {
  * One line of text per entry, comma separated, empty field = unknown:
  * ```
  * START,<t>
- * S,<t>,<lat>,<lon>,<alt>,<speed>,<accuracy>
+ * S,<t>,<lat>,<lon>,<alt>,<speed>,<accuracy>,<dem alt>
+ * D,<t>,<1|0>                                   (On a wheel / Solo)
+ * W,<t>,<wind m/s>,<wind from °>,<°C>,<RH %>,<Pa MSL>
  * H,<t>,<bpm>
  * LAP,<t>
  * PAUSE,<t>,<A|M>      RESUME,<t>,<A|M>
@@ -39,10 +46,14 @@ object JournalCodec {
     fun encode(e: JournalEntry): String = when (e) {
         is JournalEntry.Start -> "START,${e.timeMs}"
         is JournalEntry.Sample -> with(e.fix) {
-            "S,$timeMs,${num(lat, 7)},${num(lon, 7)},${num(altitudeM, 1)},${num(speedMps, 2)},${num(accuracyM, 1)}"
+            "S,$timeMs,${num(lat, 7)},${num(lon, 7)},${num(altitudeM, 1)},${num(speedMps, 2)},${num(accuracyM, 1)},${num(demAltitudeM, 1)}"
         }
         is JournalEntry.HeartRate -> "H,${e.timeMs},${e.bpm}"
         is JournalEntry.Lap -> "LAP,${e.timeMs}"
+        is JournalEntry.Draft -> "D,${e.timeMs},${if (e.onWheel) 1 else 0}"
+        is JournalEntry.Weather -> with(e.weather) {
+            "W,${e.timeMs},${num(windSpeedMps, 2)},${num(windFromDeg, 0)},${num(tempC, 1)},${num(rhPercent, 0)},${num(pressureMslPa, 0)}"
+        }
         is JournalEntry.Pause -> "PAUSE,${e.timeMs},${if (e.auto) "A" else "M"}"
         is JournalEntry.Resume -> "RESUME,${e.timeMs},${if (e.auto) "A" else "M"}"
         is JournalEntry.Stop -> "STOP,${e.timeMs}"
@@ -61,10 +72,15 @@ object JournalCodec {
                     altitudeM = f[4].toDoubleOrNull(),
                     speedMps = f[5].toDoubleOrNull(),
                     accuracyM = f[6].toDoubleOrNull(),
+                    demAltitudeM = f.getOrNull(7)?.toDoubleOrNull(),
                 )
             )
             "H" -> JournalEntry.HeartRate(f[1].toLong(), f[2].toInt())
             "LAP" -> JournalEntry.Lap(f[1].toLong())
+            "D" -> JournalEntry.Draft(f[1].toLong(), f[2] == "1")
+            "W" -> if (f.size < 7) null else JournalEntry.Weather(
+                f[1].toLong(), WeatherNow(f[2].toDouble(), f[3].toDouble(), f[4].toDouble(), f[5].toDouble(), f[6].toDouble())
+            )
             "PAUSE" -> JournalEntry.Pause(f[1].toLong(), f[2] == "A")
             "RESUME" -> JournalEntry.Resume(f[1].toLong(), f[2] == "A")
             "STOP" -> JournalEntry.Stop(f[1].toLong())
