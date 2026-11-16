@@ -279,12 +279,16 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
         }
         if (status == RideStatus.RECORDING) {
             val source = when {
+                fix.routeGradePercent != null -> ElevationSource.ROUTE
                 fix.demAltitudeM != null -> ElevationSource.DEM
                 fix.altitudeM != null -> ElevationSource.GPS
                 else -> ElevationSource.NONE
             }
             val p = engine.onInput(
-                PowerInput(fix.timeMs, fix.lat, fix.lon, fix.speedMps, fix.demAltitudeM ?: fix.altitudeM, source, fix.accuracyM)
+                PowerInput(
+                    fix.timeMs, fix.lat, fix.lon, fix.speedMps, fix.demAltitudeM ?: fix.altitudeM, source, fix.accuracyM,
+                    gradeOverridePercent = fix.routeGradePercent,
+                )
             )
             p.power1Hz?.let { ridePower.add(it, p.power30s); lapPower.add(it, p.power30s) }
         }

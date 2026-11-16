@@ -48,6 +48,8 @@ data class PowerInput(
     val elevationM: Double?,
     val elevationSource: ElevationSource,
     val accuracyM: Double?,
+    /** Gradient read on the route profile at the rider's position (no lag), when on route. */
+    val gradeOverridePercent: Double? = null,
 )
 
 /** The engine's view after the latest second. Power values are watts at the pedals, ≥ 0. */
@@ -131,6 +133,7 @@ class LivePowerEngine(private val params: PowerParams) {
             val (d0, e0) = profile.first()
             if (distanceM - d0 >= MIN_GRADE_DISTANCE_M) grade = ((e - e0) / (distanceM - d0)).coerceIn(-0.3, 0.3)
         }
+        input.gradeOverridePercent?.let { grade = (it / 100).coerceIn(-0.3, 0.3) }
         updateBearing(input)
 
         // Air: density from the weather, wind along the heading.

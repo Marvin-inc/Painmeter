@@ -13,6 +13,7 @@ import kotlin.math.sqrt
  * @property altitudeM     GPS altitude (WGS84), null when the provider gave none
  * @property accuracyM     horizontal accuracy radius (68 %), null when unknown
  * @property demAltitudeM  ground elevation from the offline elevation tiles, null when not covered
+ * @property routeGradePercent gradient of the route profile at the rider's position, when on route
  */
 data class Fix(
     val timeMs: Long,
@@ -22,6 +23,7 @@ data class Fix(
     val speedMps: Double? = null,
     val accuracyM: Double? = null,
     val demAltitudeM: Double? = null,
+    val routeGradePercent: Double? = null,
 )
 
 object Geo {

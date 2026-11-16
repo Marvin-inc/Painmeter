@@ -111,6 +111,20 @@ class LivePowerEngineTest {
     }
 
     @Test
+    fun routeGradientIsUsedWithoutLag() {
+        // Flat elevation data but the route says 8 %: the route wins, from the first second.
+        val e = LivePowerEngine(params)
+        var lat = 45.0
+        val s = (0 until 40).map { i ->
+            lat += 4.0 / 111_195.0
+            e.onInput(PowerInput(i * 1000L, lat, 5.7, 4.0, 200.0, ElevationSource.ROUTE, 4.0, gradeOverridePercent = 8.0))
+        }
+        assertEquals(8.0, s[1].gradePercent!!, 1e-9)
+        assertEquals(expected(4.0, 0.08), s.last().power10s!!, 1.0)
+        assertTrue(s.last().reliable)
+    }
+
+    @Test
     fun poorGpsIsUnreliable() {
         assertFalse(run(LivePowerEngine(params), 20, accuracy = 20.0) { 8.0 }.last().reliable)
     }
@@ -180,7 +194,7 @@ class LivePowerEngineTest {
     @Test
     fun journalKeepsDemDraftAndWeather() {
         val entries = listOf(
-            JournalEntry.Sample(Fix(1, 45.0, 5.0, 210.0, 8.0, 4.0, demAltitudeM = 205.5)),
+            JournalEntry.Sample(Fix(1, 45.0, 5.0, 210.0, 8.0, 4.0, demAltitudeM = 205.5, routeGradePercent = 6.25)),
             JournalEntry.Draft(2, true),
             JournalEntry.Weather(3, WeatherNow(4.5, 270.0, 18.5, 60.0, 101_200.0)),
         )
