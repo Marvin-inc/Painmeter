@@ -18,8 +18,8 @@ explicitly out of the first version.
 | Sensors | Phone GPS; Bluetooth LE heart-rate strap. No barometer assumed. No ANT+. |
 | Network | Optional. Needed only for weather (wind, air density) and for downloading maps / elevation tiles at home. A ride works fully offline with a fallback ρ and zero wind. |
 
-**Out of v1:** route calculation / rerouting, Strava connection (import and upload), power meter
-support, speed/cadence sensors, ANT+, iOS, multiple rider profiles.
+**Out of v1:** route calculation / rerouting, power meter support, speed/cadence sensors, ANT+,
+iOS, multiple rider profiles. The Strava connection (§14) comes in phase 8, after the core app.
 
 ---
 
@@ -37,12 +37,15 @@ RideService (foreground service, keeps running with screen off)
   ├─ ClimbDetector      route-based + live detection
   ├─ LapTracker         volume-key / on-screen lap button
   ├─ Navigator          GPX route following, off-route, next turn (no routing)
-  └─ Recorder           1 Hz samples → Room DB (crash-safe) → FIT on stop
+  └─ Recorder           1 Hz samples → append-only ride journal (crash-safe) → FIT on stop
 ```
 
-- Language: Kotlin. UI: Jetpack Compose. Storage: Room.
-- `PowerEngine` and the calibration code live in a pure-Kotlin module (`:model`) with no Android
-  dependencies, so they are unit-tested on the JVM.
+- Language: Kotlin. UI: Jetpack Compose. Storage: one folder per ride with an append-only journal
+  file (one line per sample or event, flushed every second) and the exported FIT. No database in
+  v1: the journal is simpler and survives a crash by construction.
+- Ride logic (session, auto-pause, laps, elevation gain, journal, FIT export), `PowerEngine` and the
+  calibration code live in a pure-Kotlin module (`:core`) with no Android dependencies, so they are
+  unit-tested on the JVM. FIT files are written with the Garmin FIT SDK (`com.garmin:fit`).
 - Maps: Mapsforge vector maps (offline `.map` files), rendered with `mapsforge-map-android`.
 
 ---
@@ -59,7 +62,7 @@ RideService (foreground service, keeps running with screen off)
    time in HR zones, laps table, climbs table, FIT export (share sheet / Download folder).
 6. **History**: list of past rides, open summary, re-export FIT, delete.
 
-**Crash safety:** every 1 Hz sample is written to Room immediately. If the app or phone dies,
+**Crash safety:** every 1 Hz sample is appended to the ride journal immediately. If the app or phone dies,
 the next launch offers to resume or finish the interrupted ride.
 
 ---
@@ -274,12 +277,16 @@ Banner clears when back within 30 m. No rerouting.
 Port of the coast-down calibration from Power-calcualtor (`findLapSegments`, `coastWindows`,
 `fitCoastDown`, `fitCoastDownPaired`, `runCoastDown`).
 
-1. **Instructions** screen: same protocol as the web tool (straight sheltered road, 40 → 15 km/h,
-   3–4 out-and-back pairs, no braking, normal position).
+1. **Instructions** screen: straight sheltered road, coast from **35–40 km/h down to 12–15 km/h**,
+   **5–6 out-and-back pairs**, no braking, normal position. A gentle steady slope (1–2 %) is fine and
+   helps reach the start speed: the paired fit solves the slope. Calm day.
 2. **Test ride**: a recording mode with a simplified page: speed (huge), run counter per direction,
    heading. **Volume-down** at the start and end of each coast marks the run (lap marks).
 3. **Result**: CdA ± , Crr ± , wind along the road, road slope, R², number of runs per direction,
-   scatter plot, runs table. Warnings when the fit is weak (too few runs, narrow speed range).
+   scatter plot, runs table. **Weak result warning** when: fewer than 3 runs in a direction, CdA
+   uncertainty > ±0.025, or speed range too narrow (q max / q min < 2, same rule as the web tool).
+   The warning suggests more runs or **keeping Crr fixed** (from tyre tables, about 0.0035–0.0045
+   for good road tyres) and fitting CdA only.
 4. **Apply** writes CdA / Crr into Parameters and keeps the result in a calibration history.
 
 The calibration test is also saved as a normal ride (FIT with laps), so it can be checked in the
@@ -311,9 +318,9 @@ web tool.
 
 ## 12. Acceptance tests
 
-1. **Model port**: the `:model` module run in post-ride mode on a reference GPX/FIT gives the same
+1. **Model port**: the `:core` module run in post-ride mode on a reference GPX/FIT gives the same
    power as `processRide()` in the web tool within ±1 W per point (golden test files in
-   `model/src/test/resources`).
+   `core/src/test/resources`).
 2. **Live vs post-ride**: on 3 recorded rides, live 30 s power vs post-ride (web tool) differs by
    < 10 % on average.
 3. **Calibration port**: same CdA / Crr as the web tool (±0.001 / ±0.0001) on the same file.
@@ -326,18 +333,53 @@ web tool.
 
 ## 13. Phases
 
-1. Project skeleton, foreground service, GPS, ride lifecycle, Data page (without power), Room
+1. Project skeleton, foreground service, GPS, ride lifecycle, Data page (without power), ride journal
    recording, FIT export, lap button.
 2. HR sensor (pairing, reconnect, zones).
-3. `:model` port with golden tests; elevation tiles; weather; live power; draft toggle.
+3. Power model port in `:core` with golden tests; elevation tiles; weather; live power; draft toggle.
 4. Map page (offline map, GPX route, next turn, off-route).
 5. Climb detection and Climb page.
 6. Lap page, Calibration (port + flow), Summary, History.
 7. Polish: themes, page order, battery tuning, field tests.
+8. Strava: connection, import of zones / FTP / weight, upload, starred segments with live display.
 
 ---
 
-## 14. Open points
+## 14. Strava and live segments (phase 8)
+
+### 14.1 Connection
+- The rider registers a personal Strava API application (strava.com/settings/api, callback domain
+  `localhost`) and enters the **Client ID** and **Client Secret** once in Parameters → Strava.
+- "Connect Strava" opens the browser for OAuth; the app receives the code through a custom-scheme
+  redirect and keeps the refresh token. Scopes: `read`, `profile:read_all`, `activity:write`.
+- "Disconnect" deletes the tokens.
+
+### 14.2 Import
+- On demand: **HR zones**, **FTP** and **weight** from the athlete profile and zones, shown for
+  confirmation before they replace the values in Parameters.
+
+### 14.3 Upload
+- At the end of a ride (or from History): upload the FIT file. Automatic upload on/off. Waits for
+  a network connection and retries.
+
+### 14.4 Live segments
+- **Sync** (manual, or automatic on Wi-Fi): the athlete's **starred segments** with their
+  polyline, distance, average gradient, elevation, KOM time and the rider's PR time.
+  Strava limits apply (about 100 requests / 15 min): sync only what changed.
+- **Start detection**: within 25 m of the segment start, heading within 45° of the segment's
+  first 50 m. **Following**: position snapped to the segment polyline; abandoned if > 50 m off
+  for > 10 s. **End**: within 25 m of the end point.
+- **Display** while on a segment: a segment banner on the current ride page (climbing segments
+  use the Climb page): name, **distance remaining**, **time vs PR** in seconds (ahead / behind,
+  comparing with the PR at constant pace, since the API gives no PR stream), power 10 s and
+  segment average power, HR + zone.
+- **At the end**: time, vs PR, vs KOM, average estimated power, shown for 10 s.
+- The live time is a guide; Strava times the segment again after upload.
+- Not available from the API: full leaderboards, the PR effort second by second.
+
+---
+
+## 15. Open points
 
 - **[OPEN]** How Strava labels power from a non-Garmin device (estimated vs measured).
 - **[OPEN]** Source and UI to download elevation tiles (AWS open data bucket vs Open-Meteo
