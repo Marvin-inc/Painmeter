@@ -31,6 +31,7 @@ object Compass : SensorEventListener {
     private var sx = 0.0
     private var sy = 0.0
     private var started = false
+    private var lastPublishMs = 0L
 
     /** Magnetic declination at the rider's position, degrees (east positive). */
     var declinationDeg = 0f
@@ -73,7 +74,16 @@ object Compass : SensorEventListener {
             sx += k * (cos(a) - sx)
             sy += k * (sin(a) - sy)
         }
-        _heading.value = ((Math.toDegrees(atan2(sy, sx)) + 360) % 360).toFloat()
+        // Publish at most 4 times a second, and only a change of 2° or more: enough for the map,
+        // and the map is not asked to redraw for sensor jitter.
+        val h = ((Math.toDegrees(atan2(sy, sx)) + 360) % 360).toFloat()
+        val now = event.timestamp / 1_000_000
+        val last = _heading.value
+        val diff = last?.let { abs(((h - it + 540) % 360) - 180) } ?: 360f
+        if (now - lastPublishMs >= 250 && diff >= 2f) {
+            lastPublishMs = now
+            _heading.value = h
+        }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit

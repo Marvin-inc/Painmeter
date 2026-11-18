@@ -207,14 +207,12 @@ private fun MapsforgeMap(maps: List<File>, nav: RideController.Nav?, track: Ride
 
     Box(modifier) {
         AndroidView(factory = { holder.view }, modifier = Modifier.fillMaxSize(), update = { v ->
+            // Every change makes Mapsforge redraw: only pass what really changed, or a map turned by
+            // the compass many times a second (when stopped) never gets time to draw its tiles.
             holder.setMaps(maps)
-            holder.setRoute(nav?.route?.points?.map { it.lat to it.lon })
+            holder.setRoute(nav?.route)
             holder.setTrack(track.points)
-            track.position?.let { (lat, lon) -> v.model.mapViewPosition.center = LatLong(lat, lon) }
-            v.model.mapViewPosition.zoomLevel = zoom.toByte()
-            val w = v.width.toFloat()
-            val h = v.height.toFloat()
-            if (w > 0 && h > 0) v.rotate(Rotation(-heading, w / 2, h / 2))
+            holder.setView(track.position, zoom, heading)
         })
         // Catches touches so swipes go to the pages, not to the map (it follows the rider anyway).
         Box(Modifier.fillMaxSize().pointerInput(Unit) { })
@@ -257,7 +255,29 @@ private class MapHolder(context: Context) {
     private val cache = AndroidUtil.createTileCache(context, "painmeter", view.model.displayModel.tileSize, 1f, view.model.frameBufferModel.overdrawFactor)
     private var mapsKey: List<File>? = null
     private var tiles: TileRendererLayer? = null
-    private var routeKey: Any? = null
+    private var routeKey: app.painmeter.core.route.Route? = null
+    private var center: Pair<Double, Double>? = null
+    private var zoomShown = -1
+    private var rotationShown = Float.NaN
+
+    fun setView(position: Pair<Double, Double>?, zoom: Int, headingDeg: Float) {
+        val pos = view.model.mapViewPosition
+        if (position != null && position != center) {
+            center = position
+            pos.center = LatLong(position.first, position.second)
+        }
+        if (zoom != zoomShown) {
+            zoomShown = zoom
+            pos.setZoomLevel(zoom.toByte(), false)
+        }
+        val w = view.width.toFloat()
+        val h = view.height.toFloat()
+        val angle = -headingDeg
+        if (w > 0 && h > 0 && (rotationShown.isNaN() || kotlin.math.abs(angle - rotationShown) >= 0.8f)) {
+            rotationShown = angle
+            view.rotate(Rotation(angle, w / 2, h / 2))
+        }
+    }
     private var routeLine: Polyline? = null
     private var trackLine: Polyline? = null
     private var trackSize = -1
@@ -276,13 +296,13 @@ private class MapHolder(context: Context) {
         view.layerManager.layers.add(0, tiles)
     }
 
-    fun setRoute(points: List<Pair<Double, Double>>?) {
-        if (points === routeKey) return
-        routeKey = points
+    fun setRoute(route: app.painmeter.core.route.Route?) {
+        if (route === routeKey) return
+        routeKey = route
         routeLine?.let { view.layerManager.layers.remove(it) }
         routeLine = null
-        if (points == null) return
-        routeLine = line(0xFF2F6FED.toInt(), 9f).apply { addPoints(points.map { LatLong(it.first, it.second) }) }
+        if (route == null) return
+        routeLine = line(0xFF2F6FED.toInt(), 9f).apply { addPoints(route.points.map { LatLong(it.lat, it.lon) }) }
         view.layerManager.layers.add(routeLine)
     }
 
