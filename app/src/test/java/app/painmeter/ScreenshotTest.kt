@@ -22,6 +22,7 @@ import app.painmeter.core.route.RoutePoint
 import app.painmeter.core.route.TurnDetector
 import app.painmeter.ui.ElevationPanelState
 import app.painmeter.ui.HomeScreen
+import app.painmeter.ui.AeroInfo
 import app.painmeter.ui.RouteInfo
 import app.painmeter.ui.ParametersScreen
 import app.painmeter.ui.RideScreen
@@ -189,8 +190,21 @@ class ScreenshotTest {
     }
 
     @Test fun home() {
-        compose.setContent { HomeScreen(true, 4.0, HrState.Connected("Polar H10", 64, true), true, RouteInfo("Vercors loop", "82.4 km · 1450 m"), File("20261116-084512"), {}, {}, {}, {}, {}) }
+        compose.setContent { HomeScreen(
+                true, 4.0, HrState.Connected("Polar H10", 64, true), true, RouteInfo("Vercors loop", "82.4 km · 1450 m · 3 climbs"), null,
+                {}, {}, {}, {}, {}, mapCount = 1, aero = AeroInfo(0.312, 0.0042, 1_763_164_800_000),
+                lastRide = RideStore.Summary(1_763_282_712_000, 5_283_000, 42_700.0, 612.0, 196.0, 221.0, 146),
+                routeProfile = List(60) { i -> 300 + 400 * Math.sin(i / 12.0) * Math.sin(i / 12.0) + i * 3 },
+            ) }
         shot("home")
+    }
+
+    @Test fun homeGettingReady() {
+        compose.setContent {
+            HomeScreen(true, null, HrState.NotPaired, null, null, File("20261116-084512"), {}, {}, {}, {}, {},
+                mapCount = 0, aero = AeroInfo(0.32, 0.004, null))
+        }
+        shot("home-getting-ready")
     }
 
     @Test fun parameters() {

@@ -10,6 +10,16 @@ import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.Modifier
+import app.painmeter.ui.Pm
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -26,6 +36,7 @@ import app.painmeter.ui.RouteInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import app.painmeter.ui.AeroInfo
 import app.painmeter.ui.CalibrationIntroScreen
 import app.painmeter.ui.CalibrationResultScreen
 import app.painmeter.ui.ElevationPanelState
@@ -72,7 +83,14 @@ class MainActivity : ComponentActivity() {
         hasLocation = locationGranted()
         handleIncoming(intent)
 
+        // Android 15 draws apps under the status bar and the navigation buttons: keep every screen
+        // inside the safe area so nothing ends up behind the system buttons.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#0B0D10")),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#0B0D10")),
+        )
         setContent {
+            Box(Modifier.fillMaxSize().background(Pm.Background).windowInsetsPadding(WindowInsets.safeDrawing)) {
             val ride by RideController.ride.collectAsStateWithLifecycle()
             val finished by RideController.finished.collectAsStateWithLifecycle()
             val unfinished by RideController.unfinished.collectAsStateWithLifecycle()
@@ -104,7 +122,7 @@ class MainActivity : ComponentActivity() {
                     draftReminder = settings.draftReminder,
                     onLap = { RideController.lap() },
                     onTogglePause = { RideController.togglePause() },
-                    onStop = { RideService.stop(this) },
+                    onStop = { RideService.stop(this@MainActivity) },
                     calibrationRuns = if (calibrationMode) RideController.calibRuns.collectAsStateWithLifecycle().value else null,
                     nav = RideController.nav.collectAsStateWithLifecycle().value,
                     track = RideController.track.collectAsStateWithLifecycle().value,
@@ -125,7 +143,7 @@ class MainActivity : ComponentActivity() {
                 done != null -> SummaryScreen(done, settings.hrZones, onShare = { shareFit(done) }, onDone = { RideController.closeSummary() })
                 screen == Screen.CALIBRATION -> CalibrationIntroScreen(
                     settings.cda, settings.crr,
-                    onStartTest = { screen = Screen.HOME; RideService.start(this, calibration = true) },
+                    onStartTest = { screen = Screen.HOME; RideService.start(this@MainActivity, calibration = true) },
                     onFromHistory = { screen = Screen.PICK_CALIBRATION_RIDE },
                     onBack = { screen = Screen.PARAMETERS },
                 )
@@ -185,6 +203,8 @@ class MainActivity : ComponentActivity() {
                     val tiles by ElevationStore.tiles.collectAsStateWithLifecycle()
                     GpsPreview(enabled = hasLocation) { position = it }
                     val here = position
+                    var lastRide by remember { mutableStateOf<RideStore.Summary?>(null) }
+                    androidx.compose.runtime.LaunchedEffect(finished) { lastRide = RideController.history().firstOrNull()?.second }
                     HomeScreen(
                         hasPermission = hasLocation,
                         gpsAccuracyM = here?.third,
@@ -192,14 +212,22 @@ class MainActivity : ComponentActivity() {
                         elevationHere = here?.let { tiles.isNotEmpty() && ElevationStore.has(it.first, it.second) },
                         route = routeInfo,
                         unfinished = unfinished,
-                        onStart = { RideService.start(this) },
+                        onStart = { RideService.start(this@MainActivity) },
                         onGrant = { requestPermissions() },
-                        onResume = { RideService.resume(this, it) },
+                        onResume = { RideService.resume(this@MainActivity, it) },
                         onSaveUnfinished = { RideController.finishUnfinished(it) },
                         onParameters = { showParameters = true },
                         onHistory = { screen = Screen.HISTORY },
+                        mapCount = maps.size,
+                        aero = AeroInfo(settings.cda, settings.crr, settings.calibDateMs),
+                        lastRide = lastRide,
+                        routeProfile = route?.points?.mapNotNull { it.ele }?.let { e ->
+                            if (e.size < 2) null else List(60) { i -> e[(i * (e.size - 1)) / 59] }
+                        },
+                        onCalibrate = { screen = Screen.CALIBRATION },
                     )
                 }
+            }
             }
         }
         if (!hasLocation || !HrMonitor.hasPermission()) requestPermissions()

@@ -148,21 +148,25 @@ fun RideScreen(
             }
 
             // Swipe between pages (SPEC §9.1): Data, Climb, Lap, Map.
-            val pager = rememberPagerState(initialPage = initialPage) { PAGES }
+            // The pages go round: swiping on from the last page comes back to the first, both ways.
+            // The pager has a very large number of pages; each shows page % PAGES.
+            val pager = rememberPagerState(initialPage = LOOP_START + initialPage) { LOOP_PAGES }
             // SPEC §7.4: show the Climb page when a climb starts, go back 10 s after the top.
             LaunchedEffect(climbAutoSwitch) {
                 if (!climbAutoSwitch) return@LaunchedEffect
                 var before: Int? = null
                 RideController.climbEvents.collect { e ->
                     when (e) {
-                        RideController.ClimbEvent.STARTED -> if (pager.currentPage != CLIMB_PAGE) {
+                        RideController.ClimbEvent.STARTED -> if (pager.currentPage % PAGES != CLIMB_PAGE) {
                             before = pager.currentPage
-                            pager.animateScrollToPage(CLIMB_PAGE)
+                            pager.animateScrollToPage(nearest(pager.currentPage, CLIMB_PAGE))
                         }
                         RideController.ClimbEvent.FINISHED -> launch {
                             delay(10_000)
                             val back = before
-                            if (back != null && pager.currentPage == CLIMB_PAGE) pager.animateScrollToPage(back)
+                            if (back != null && pager.currentPage % PAGES == CLIMB_PAGE) {
+                                pager.animateScrollToPage(nearest(pager.currentPage, back % PAGES))
+                            }
                             before = null
                         }
                     }
@@ -171,7 +175,7 @@ fun RideScreen(
             if (calibrationRuns != null) {
                 CalibrationRidePage(snap, calibrationRuns, onLap, Modifier.weight(1f).padding(10.dp))
             } else HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
-                when (page) {
+                when (page % PAGES) {
                     0 -> Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val p10 = snap.power.powerShort
                 DataField(
@@ -207,7 +211,7 @@ fun RideScreen(
                     else -> MapPage(snap, nav, track, maps, Modifier.fillMaxSize().padding(10.dp))
                 }
             }
-            if (calibrationRuns == null) PageDots(pager.currentPage, PAGES)
+            if (calibrationRuns == null) PageDots(pager.currentPage % PAGES, PAGES)
 
             if (calibrationRuns != null) {
                 // Coast-down test: only pause and finish; runs are marked with volume − or END RUN.
@@ -262,6 +266,16 @@ fun RideScreen(
 
 private const val PAGES = 4
 const val CLIMB_PAGE = 1
+private const val LOOP_PAGES = 4_000
+private const val LOOP_START = LOOP_PAGES / 2 // a multiple of PAGES, so it shows the Data page
+
+/** The page closest to [from] that shows [target] (0..PAGES-1), going whichever way is shorter. */
+private fun nearest(from: Int, target: Int): Int {
+    var d = (target - from % PAGES) % PAGES
+    if (d > PAGES / 2) d -= PAGES
+    if (d < -PAGES / 2) d += PAGES
+    return from + d
+}
 const val LAP_PAGE = 2
 const val MAP_PAGE = 3
 
