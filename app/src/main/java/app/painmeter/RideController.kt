@@ -357,6 +357,15 @@ object RideController {
     private var finishedClimb: app.painmeter.core.climb.ClimbProgress? = null
     private var finishedAtMs = 0L
 
+    /** Profile and climbs of any route, for the route preview (in the background). */
+    suspend fun analyse(route: app.painmeter.core.route.Route): Pair<app.painmeter.core.climb.RouteProfile, List<app.painmeter.core.climb.RouteClimb>> {
+        val settings = Settings.current.value.climbs
+        return withContext(Dispatchers.Default) {
+            val profile = app.painmeter.core.climb.RouteProfile(route) { lat, lon -> ElevationStore.elevationNow(lat, lon) }
+            profile to app.painmeter.core.climb.ClimbFinder.find(profile, settings)
+        }
+    }
+
     /** Builds the route profile (with elevation tiles where the GPX has none) and finds its climbs. */
     fun analyseRoute() {
         val route = RouteStore.route.value ?: run { routeProfile = null; _routeClimbs.value = emptyList(); return }

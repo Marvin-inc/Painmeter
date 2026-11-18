@@ -66,6 +66,7 @@ fun HomeScreen(
     lastRide: RideStore.Summary? = null,
     routeProfile: List<Double>? = null,
     onCalibrate: () -> Unit = {},
+    onRoutes: () -> Unit = onParameters,
 ) {
     val gps = when {
         !hasPermission -> Check(Level.BAD, "Location permission needed")
@@ -145,13 +146,16 @@ fun HomeScreen(
             // Route.
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Pm.Surface)
-                    .clickable(onClickLabel = "Route settings", onClick = onParameters).padding(14.dp),
+                    .clickable(onClickLabel = "Choose a route", onClick = onRoutes).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Text("ROUTE", color = Pm.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("ROUTE", color = Pm.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("change ›", color = Pm.Power, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
                 if (route == null) {
                     Text("Free ride", color = Pm.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Import a GPX to get turns, climbs ahead and the gradient from the route.", color = Pm.Muted, fontSize = 13.sp)
+                    Text("Pick a route to get turns, climbs ahead and the gradient from the route.", color = Pm.Muted, fontSize = 13.sp)
                 } else {
                     Text(route.name, color = Pm.Text, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     Text(route.summary, color = Pm.Muted, fontSize = 14.sp)

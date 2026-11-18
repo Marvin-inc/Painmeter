@@ -329,3 +329,56 @@ private class MapHolder(context: Context) {
         view.destroyAll()
     }
 }
+
+/**
+ * A still map of a whole route (north up), for the route preview. Without offline map files
+ * it shows the route line on a plain background.
+ */
+@Composable
+fun RouteMapPreview(route: app.painmeter.core.route.Route, maps: List<File>, modifier: Modifier) {
+    if (LocalInspectionMode.current || maps.isEmpty()) {
+        RouteShape(route, modifier.background(Color(0xFF161B22)).padding(16.dp), Pm.Blue, 6f)
+        return
+    }
+    val context = LocalContext.current
+    val holder = remember { MapHolder(context) }
+    DisposableEffect(Unit) { onDispose { holder.destroy() } }
+    AndroidView(factory = { holder.view }, modifier = modifier, update = { v ->
+        holder.setMaps(maps)
+        holder.setRoute(route)
+        if (v.width > 0 && v.height > 0) {
+            val lats = route.points.map { it.lat }
+            val lons = route.points.map { it.lon }
+            val box = org.mapsforge.core.model.BoundingBox(lats.min(), lons.min(), lats.max(), lons.max())
+            val zoom = org.mapsforge.core.util.LatLongUtils.zoomForBounds(
+                org.mapsforge.core.model.Dimension((v.width * 0.85).toInt(), (v.height * 0.85).toInt()), box, v.model.displayModel.tileSize,
+            ).toInt()
+            holder.setView(box.centerPoint.latitude to box.centerPoint.longitude, zoom, 0f)
+        }
+    })
+}
+
+/** The route's shape drawn alone (no map): the list thumbnails, and the preview without a map. */
+@Composable
+fun RouteShape(route: app.painmeter.core.route.Route, modifier: Modifier, color: Color = Pm.Power, width: Float = 4f) {
+    val pts = remember(route) {
+        val step = maxOf(1, route.points.size / 300)
+        route.points.filterIndexed { i, _ -> i % step == 0 } + route.points.last()
+    }
+    androidx.compose.foundation.Canvas(modifier.semantics { contentDescription = "Route shape" }) {
+        val lat0 = pts.minOf { it.lat }; val lat1 = pts.maxOf { it.lat }
+        val k = kotlin.math.cos(Math.toRadians((lat0 + lat1) / 2))
+        val lon0 = pts.minOf { it.lon }; val lon1 = pts.maxOf { it.lon }
+        val spanX = ((lon1 - lon0) * k).coerceAtLeast(1e-6)
+        val spanY = (lat1 - lat0).coerceAtLeast(1e-6)
+        val scale = minOf(size.width / spanX, size.height / spanY).toFloat()
+        val ox = (size.width - spanX.toFloat() * scale) / 2
+        val oy = (size.height - spanY.toFloat() * scale) / 2
+        fun xy(p: app.painmeter.core.route.RoutePoint) =
+            Offset(ox + ((p.lon - lon0) * k).toFloat() * scale, oy + ((lat1 - p.lat)).toFloat() * scale)
+        val path = Path().apply { pts.forEachIndexed { i, p -> val o = xy(p); if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y) } }
+        drawPath(path, color, style = Stroke(width = width, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        drawCircle(Pm.Green, radius = width * 1.6f, center = xy(pts.first()))
+        drawCircle(Pm.Rec, radius = width * 1.6f, center = xy(pts.last()))
+    }
+}

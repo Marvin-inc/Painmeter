@@ -41,6 +41,8 @@ import app.painmeter.ui.CalibrationIntroScreen
 import app.painmeter.ui.CalibrationResultScreen
 import app.painmeter.ui.ElevationPanelState
 import app.painmeter.ui.HistoryScreen
+import app.painmeter.ui.RoutePreviewScreen
+import app.painmeter.ui.RoutesScreen
 import app.painmeter.ui.HomeScreen
 import app.painmeter.ui.ParametersScreen
 import app.painmeter.ui.RideScreen
@@ -49,7 +51,14 @@ import app.painmeter.ui.SummaryScreen
 class MainActivity : ComponentActivity() {
 
     private var hasLocation by mutableStateOf(false)
-    private enum class Screen { HOME, PARAMETERS, HISTORY, CALIBRATION, PICK_CALIBRATION_RIDE }
+    private enum class Screen { HOME, PARAMETERS, HISTORY, CALIBRATION, PICK_CALIBRATION_RIDE, ROUTES, ROUTE_PREVIEW }
+    private var previewId by mutableStateOf<String?>(null)
+    private var routesMessage by mutableStateOf<String?>(null)
+
+    private val pickRoutes = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) routesMessage = RouteStore.importRoutes(uris)
+            ?: "${uris.size} route${if (uris.size > 1) "s" else ""} imported"
+    }
     private var screen by mutableStateOf(Screen.HOME)
     private var showParameters: Boolean
         get() = screen == Screen.PARAMETERS
@@ -65,9 +74,6 @@ class MainActivity : ComponentActivity() {
     /** Result of the last route or map import, shown in Parameters. */
     private var importMessage by mutableStateOf<String?>(null)
 
-    private val pickRoute = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { importMessage = RouteStore.importRoute(it) ?: "Route imported" }
-    }
 
     private val pickMap = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
@@ -112,7 +118,11 @@ class MainActivity : ComponentActivity() {
             val calibration by RideController.calibration.collectAsStateWithLifecycle()
             val calibrationMode by RideController.calibrationMode.collectAsStateWithLifecycle()
             BackHandler(enabled = screen != Screen.HOME && current == null) {
-                screen = if (screen == Screen.PICK_CALIBRATION_RIDE) Screen.CALIBRATION else Screen.HOME
+                screen = when (screen) {
+                    Screen.PICK_CALIBRATION_RIDE -> Screen.CALIBRATION
+                    Screen.ROUTE_PREVIEW -> Screen.ROUTES
+                    else -> Screen.HOME
+                }
             }
             when {
                 current != null -> RideScreen(
@@ -141,6 +151,37 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 done != null -> SummaryScreen(done, settings.hrZones, onShare = { shareFit(done) }, onDone = { RideController.closeSummary() })
+                screen == Screen.ROUTES -> {
+                    val library by RouteStore.library.collectAsStateWithLifecycle()
+                    val activeId by RouteStore.activeId.collectAsStateWithLifecycle()
+                    RoutesScreen(
+                        library, activeId, routesMessage,
+                        onOpen = { previewId = it.id; routesMessage = null; screen = Screen.ROUTE_PREVIEW },
+                        onFreeRide = { RouteStore.select(null); screen = Screen.HOME },
+                        onImport = { pickRoutes.launch(arrayOf("*/*")) },
+                        onBack = { routesMessage = null; screen = Screen.HOME },
+                    )
+                }
+                screen == Screen.ROUTE_PREVIEW -> {
+                    val library by RouteStore.library.collectAsStateWithLifecycle()
+                    val activeId by RouteStore.activeId.collectAsStateWithLifecycle()
+                    val saved = library.firstOrNull { it.id == previewId }
+                    if (saved == null) {
+                        screen = Screen.ROUTES
+                    } else {
+                        var analysis by remember(saved.route) {
+                            mutableStateOf<Pair<app.painmeter.core.climb.RouteProfile, List<app.painmeter.core.climb.RouteClimb>>?>(null)
+                        }
+                        androidx.compose.runtime.LaunchedEffect(saved.route) { analysis = RideController.analyse(saved.route) }
+                        RoutePreviewScreen(
+                            saved, saved.id == activeId, analysis, maps,
+                            onUse = { RouteStore.select(saved.id); screen = Screen.HOME },
+                            onRename = { RouteStore.rename(saved.id, it) },
+                            onDelete = { RouteStore.delete(saved.id); screen = Screen.ROUTES },
+                            onBack = { screen = Screen.ROUTES },
+                        )
+                    }
+                }
                 screen == Screen.CALIBRATION -> CalibrationIntroScreen(
                     settings.cda, settings.crr,
                     onStartTest = { screen = Screen.HOME; RideService.start(this@MainActivity, calibration = true) },
@@ -189,7 +230,7 @@ class MainActivity : ComponentActivity() {
                         route = routeInfo,
                         maps = maps,
                         message = importMessage,
-                        onImportRoute = { pickRoute.launch(arrayOf("*/*")) },
+                        onImportRoute = { screen = Screen.ROUTES },
                         onClearRoute = { RouteStore.clearRoute(); importMessage = null },
                         onImportMap = { pickMap.launch(arrayOf("*/*")) },
                         onDeleteMap = { RouteStore.deleteMap(it) },
@@ -225,6 +266,7 @@ class MainActivity : ComponentActivity() {
                             if (e.size < 2) null else List(60) { i -> e[(i * (e.size - 1)) / 59] }
                         },
                         onCalibrate = { screen = Screen.CALIBRATION },
+                        onRoutes = { screen = Screen.ROUTES },
                     )
                 }
             }
@@ -250,8 +292,8 @@ class MainActivity : ComponentActivity() {
             else -> null
         } ?: return
         if (RideController.isActive) return
-        importMessage = RouteStore.importRoute(uri) ?: "Route imported"
-        showParameters = true
+        routesMessage = RouteStore.importRoute(uri) ?: "Route imported and selected"
+        screen = Screen.ROUTES
     }
 
     override fun onStart() {

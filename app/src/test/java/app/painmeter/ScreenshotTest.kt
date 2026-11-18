@@ -24,6 +24,8 @@ import app.painmeter.ui.ElevationPanelState
 import app.painmeter.ui.HomeScreen
 import app.painmeter.ui.AeroInfo
 import app.painmeter.ui.RouteInfo
+import app.painmeter.ui.RoutePreviewScreen
+import app.painmeter.ui.RoutesScreen
 import app.painmeter.ui.ParametersScreen
 import app.painmeter.ui.RideScreen
 import app.painmeter.ui.SummaryScreen
@@ -174,6 +176,37 @@ class ScreenshotTest {
         )
         compose.setContent { HistoryScreen(rides, false, {}, {}, {}, {}, {}) }
         shot("history")
+    }
+
+    /** A loop with two climbs, heading round. */
+    private fun loopRoute(name: String, scale: Double = 1.0): Route {
+        val pts = (0..900).map { i ->
+            val a = i / 900.0 * 2 * Math.PI
+            val d = i * 40.0 * scale
+            val ele = 300 + 280 * maxOf(0.0, Math.sin(a * 2)) + 60 * Math.sin(a * 7)
+            RoutePoint(45.2 + 0.08 * scale * Math.sin(a) + 0.02 * Math.sin(3 * a), 5.7 + 0.12 * scale * Math.cos(a), ele)
+        }
+        return Route(name, pts)
+    }
+
+    @Test fun routes() {
+        val now = System.currentTimeMillis()
+        val list = listOf(
+            SavedRoute("a", "Vercors loop", loopRoute("Vercors loop"), now - 9 * 86_400_000L, now - 2 * 86_400_000L),
+            SavedRoute("b", "Commute home", loopRoute("Commute home", 0.15), now - 30 * 86_400_000L, now - 3_600_000L),
+            SavedRoute("c", "Chartreuse col tour", loopRoute("Chartreuse col tour", 0.7), now - 3 * 86_400_000L, null),
+        ).sortedByDescending { it.lastUsedMs ?: 0 }
+        compose.setContent { RoutesScreen(list, "a", "2 routes imported", {}, {}, {}, {}) }
+        shot("routes")
+    }
+
+    @Test fun routePreview() {
+        val r = loopRoute("Vercors loop")
+        val profile = app.painmeter.core.climb.RouteProfile(r)
+        val climbs = app.painmeter.core.climb.ClimbFinder.find(profile)
+        val saved = SavedRoute("a", "Vercors loop", r, 0, null)
+        compose.setContent { RoutePreviewScreen(saved, false, profile to climbs, emptyList(), {}, {}, {}, {}) }
+        shot("route-preview")
     }
 
     @Test fun rideOnAWheel() {

@@ -282,7 +282,11 @@ Banner clears when back within 30 m. No rerouting.
 - **Drafting**: k_draft for On a wheel (0.65), reminder on/off.
 - **Weather**: on/off, k_wind (0.6), fallback ρ (1.225).
 - **Climbs**: thresholds of §7.1, auto-switch on/off.
-- **Route**: import GPX (file picker, or "open with" / share from another app), clear route.
+- **Routes** (library): several GPX routes kept on the phone, most recently used first, "Free
+  ride" on top; import several files at once, or "open with" / share from another app (that one
+  becomes the active route). Tapping a route opens its preview: the route on the offline map (or
+  its shape alone without a map), distance, gain, number of climbs, profile with the climbs
+  coloured by gradient, the climbs list; Use this route, Rename, Delete.
 - **Maps**: import `.map` files, list, delete, link to the download site.
 - **Sensors**: scan and pair HR strap, forget.
 - **Offline data**: download map and elevation tiles for a region (pick on a world map / list),

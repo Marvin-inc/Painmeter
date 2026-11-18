@@ -90,8 +90,8 @@ fun ParametersScreen(
                     Text(route.summary, color = Pm.Muted, fontSize = 14.sp)
                 }
                 Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BigButton("IMPORT GPX", Modifier.weight(1.4f), Pm.Blue, Color.White, onClick = onImportRoute)
-                    if (route != null) BigButton("CLEAR", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onClearRoute)
+                    BigButton("CHOOSE A ROUTE", Modifier.weight(1.4f), Pm.Blue, Color.White, onClick = onImportRoute)
+                    if (route != null) BigButton("FREE RIDE", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onClearRoute)
                 }
                 Text("Or open a .gpx from Komoot, Strava, Files… with Painmeter.", color = Pm.Muted, fontSize = 13.sp)
             }
