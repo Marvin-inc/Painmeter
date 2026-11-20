@@ -22,6 +22,7 @@ import com.garmin.fit.SessionMesg
 import com.garmin.fit.SessionTrigger
 import com.garmin.fit.Sport
 import com.garmin.fit.SubSport
+import app.painmeter.core.run.Sport as RideSport
 import java.io.File
 import java.util.Date
 import java.util.TimeZone
@@ -68,7 +69,8 @@ object FitExporter {
                         encoder.write(timerEvent(e.timeMs, EventType.STOP_ALL))
                         stopTimeMs = e.timeMs
                     }
-                    is JournalEntry.Lap, is JournalEntry.HeartRate, is JournalEntry.Draft, is JournalEntry.Weather -> Unit
+                    is JournalEntry.Lap, is JournalEntry.HeartRate, is JournalEntry.Draft, is JournalEntry.Weather,
+                    is JournalEntry.Steps -> Unit
                     is JournalEntry.Sample -> {
                         // FIT timestamps are whole seconds: keep one record per second, while recording.
                         val second = e.fix.timeMs / 1000
@@ -84,7 +86,8 @@ object FitExporter {
             val end = stopTimeMs ?: lastTimeMs.also { session.apply(JournalEntry.Stop(it)) }
             val snap = session.snapshot(end)
             val laps = session.completedLaps
-            laps.forEach { encoder.write(lapMesg(it)) }
+            val run = session.sport == RideSport.RUN
+            laps.forEach { encoder.write(lapMesg(it, run)) }
 
             encoder.write(SessionMesg().apply {
                 messageIndex = 0
@@ -102,11 +105,14 @@ object FitExporter {
                 snap.avgPower?.let { avgPower = it.roundToInt() }
                 snap.maxPower?.let { maxPower = it.roundToInt() }
                 snap.normalizedPower?.let { normalizedPower = it.roundToInt() }
-                thresholdPower = snap.ftpW
+                if (!run) thresholdPower = snap.ftpW
+                // FIT running cadence is in strides (two steps) per minute.
+                snap.avgCadenceSpm?.let { avgCadence = (it / 2).toInt().toShort(); avgFractionalCadence = ((it / 2) % 1).toFloat() }
+                if (run) totalDescent = snap.elevationLossM.roundToInt()
                 snap.maxHr?.let { maxHeartRate = it.toShort() }
                 snap.hrZoneMs.forEachIndexed { i, ms -> setTimeInHrZone(i, (ms / 1000.0).toFloat()) }
-                sport = Sport.CYCLING
-                subSport = SubSport.ROAD
+                sport = if (run) Sport.RUNNING else Sport.CYCLING
+                subSport = if (run) SubSport.GENERIC else SubSport.ROAD
                 firstLapIndex = 0
                 numLaps = laps.size
                 event = Event.SESSION
@@ -132,7 +138,8 @@ object FitExporter {
     private fun record(fix: Fix, snap: RideSnapshot, dev: DevFields) = RecordMesg().apply {
         val distanceM = snap.distanceM
         snap.hrBpm?.let { heartRate = it.toShort() }
-        snap.power.power1Hz?.let { power = it.roundToInt() }
+        if (snap.sport == RideSport.BIKE) snap.power.power1Hz?.let { power = it.roundToInt() }
+        snap.cadenceSpm?.let { cadence = (it / 2).toInt().toShort(); fractionalCadence = ((it / 2) % 1).toFloat() }
         snap.power.gradePercent?.let { grade = it.toFloat() }
         dev.addTo(this, fix, snap)
         timestamp = dt(fix.timeMs)
@@ -143,7 +150,7 @@ object FitExporter {
         fix.altitudeM?.let { enhancedAltitude = it.toFloat() }
     }
 
-    private fun lapMesg(l: LapSummary) = LapMesg().apply {
+    private fun lapMesg(l: LapSummary, run: Boolean) = LapMesg().apply {
         messageIndex = l.index
         timestamp = dt(l.endTimeMs)
         startTime = dt(l.startTimeMs)
@@ -157,10 +164,16 @@ object FitExporter {
         l.avgPower?.let { avgPower = it.roundToInt() }
         l.maxPower?.let { maxPower = it.roundToInt() }
         l.maxHr?.let { maxHeartRate = it.toShort() }
-        sport = Sport.CYCLING
+        l.avgCadenceSpm?.let { avgCadence = (it / 2).toInt().toShort(); avgFractionalCadence = ((it / 2) % 1).toFloat() }
+        if (run) totalDescent = l.descentM.roundToInt()
+        sport = if (run) Sport.RUNNING else Sport.CYCLING
         event = Event.LAP
         eventType = EventType.STOP
-        lapTrigger = if (l.endedBySession) LapTrigger.SESSION_END else LapTrigger.MANUAL
+        lapTrigger = when {
+            l.endedBySession -> LapTrigger.SESSION_END
+            l.auto -> LapTrigger.DISTANCE
+            else -> LapTrigger.MANUAL
+        }
     }
 
     private fun timerEvent(timeMs: Long, type: EventType) = EventMesg().apply {

@@ -27,14 +27,26 @@ import app.painmeter.core.HrZones
 @Composable
 fun SummaryScreen(ride: FinishedRide, zones: HrZones, onShare: () -> Unit, onDone: () -> Unit) {
     val s = ride.snapshot
+    val run = s.sport == app.painmeter.core.run.Sport.RUN
     Column(Modifier.fillMaxSize().background(Pm.Background).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Ride summary", color = Pm.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(4.dp))
+        Text(if (run) "Run summary" else "Ride summary", color = Pm.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(4.dp))
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DataField("RIDE TIME", Format.duration(s.rideTimeMs), Modifier.weight(1f), valueSize = 44.sp)
                 DataField("DIST · km", Format.distanceKm(s.distanceM), Modifier.weight(1f), valueSize = 44.sp)
             }
-            Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (run) {
+                Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DataField("AVG PACE · /km", Format.pace(s.avgSpeedMps), Modifier.weight(1f), valueSize = 44.sp, valueColor = Pm.Power)
+                    DataField("AVG GAP · /km", Format.pace(s.avgGapSpeedMps), Modifier.weight(1f), valueSize = 44.sp)
+                }
+                Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DataField("CADENCE · spm", Format.cadence(s.avgCadenceSpm), Modifier.weight(1f), valueSize = 44.sp)
+                    DataField("D+ · m", Format.metres(s.elevationGainM), Modifier.weight(1f), valueSize = 44.sp)
+                    DataField("D− · m", Format.metres(s.elevationLossM), Modifier.weight(1f), valueSize = 44.sp)
+                }
+                Text("GAP: pace on the flat for the same effort (Minetti energy cost of running).", color = Pm.Muted, fontSize = 13.sp)
+            } else Row(Modifier.fillMaxWidth().height(96.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DataField("AVG km/h", Format.speedKmh(s.avgSpeedMps), Modifier.weight(1f), valueSize = 44.sp)
                 DataField("MAX km/h", Format.speedKmh(s.maxSpeedMps), Modifier.weight(1f), valueSize = 44.sp)
                 DataField("GAIN · m", Format.metres(s.elevationGainM), Modifier.weight(1f), valueSize = 44.sp)
@@ -59,9 +71,16 @@ fun SummaryScreen(ride: FinishedRide, zones: HrZones, onShare: () -> Unit, onDon
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pm.Surface).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text("LAPS", color = Pm.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(if (run) "SPLITS" else "LAPS", color = Pm.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     ride.laps.forEach { lap ->
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        if (run) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(if (lap.auto) "Km ${lap.index + 1}" else "Lap ${lap.index + 1}", color = Pm.Muted, fontSize = 15.sp)
+                            Text(Format.duration(lap.timerMs), color = Pm.Text, fontSize = 15.sp)
+                            Text("${Format.distanceKm(lap.distanceM)} km", color = Pm.Text, fontSize = 15.sp)
+                            Text("${Format.pace(lap.avgSpeedMps)} /km", color = Pm.Power, fontSize = 15.sp)
+                            Text("GAP ${Format.pace(lap.gapSpeedMps)}", color = Pm.Text, fontSize = 15.sp)
+                            Text(lap.avgHr?.let { "$it bpm" } ?: "", color = Pm.zoneColor(lap.avgHr?.let(zones::zoneOf)) ?: Pm.Muted, fontSize = 15.sp)
+                        } else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Lap ${lap.index + 1}", color = Pm.Muted, fontSize = 15.sp)
                             Text(Format.duration(lap.timerMs), color = Pm.Text, fontSize = 15.sp)
                             Text("${Format.distanceKm(lap.distanceM)} km", color = Pm.Text, fontSize = 15.sp)

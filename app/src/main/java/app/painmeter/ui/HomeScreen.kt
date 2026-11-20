@@ -67,7 +67,12 @@ fun HomeScreen(
     routeProfile: List<Double>? = null,
     onCalibrate: () -> Unit = {},
     onRoutes: () -> Unit = onParameters,
+    sport: app.painmeter.core.run.Sport = app.painmeter.core.run.Sport.BIKE,
+    onSport: (app.painmeter.core.run.Sport) -> Unit = {},
+    /** An imported map theme (OpenAndroMaps Elevate) is there. */
+    hasTheme: Boolean = false,
 ) {
+    val run = sport == app.painmeter.core.run.Sport.RUN
     val gps = when {
         !hasPermission -> Check(Level.BAD, "Location permission needed")
         gpsAccuracyM == null -> Check(Level.WAIT, "Searching…")
@@ -86,8 +91,14 @@ fun HomeScreen(
         false -> Check(Level.WAIT, "Missing here · downloads during the ride")
         null -> Check(Level.OFF, "Waiting for GPS")
     }
-    val map = if (mapCount > 0) Check(Level.OK, "$mapCount offline map${if (mapCount > 1) "s" else ""}") else Check(Level.OFF, "No offline map")
-    val aeroCheck = aero?.let {
+    val maps = "$mapCount offline map${if (mapCount > 1) "s" else ""}"
+    val map = when {
+        mapCount == 0 -> Check(Level.OFF, "No offline map")
+        run && !hasTheme -> Check(Level.WAIT, maps, "no trail theme · import Elevate (OpenAndroMaps)")
+        run -> Check(Level.OK, maps, "trail theme on")
+        else -> Check(Level.OK, maps)
+    }
+    val aeroCheck = aero?.takeIf { !run }?.let {
         val values = "CdA ${String.format(Locale.ROOT, "%.3f", it.cda)} · Crr ${String.format(Locale.ROOT, "%.4f", it.crr)}"
         if (it.calibratedMs != null) Check(Level.OK, values, "calibrated " + SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).format(Date(it.calibratedMs)))
         else Check(Level.WAIT, values, "not calibrated yet · tap to calibrate")
@@ -104,7 +115,18 @@ fun HomeScreen(
                 Logo(Modifier.size(44.dp))
                 Column(Modifier.padding(start = 12.dp).weight(1f)) {
                     Text("Painmeter", color = Pm.Text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                    Text("Estimated power, no power meter", color = Pm.Muted, fontSize = 13.sp)
+                    Text(if (run) "Pace, grade-adjusted pace, cadence" else "Estimated power, no power meter", color = Pm.Muted, fontSize = 13.sp)
+                }
+            }
+
+            // Sport (SPEC §16.1): chosen here, kept for the next rides.
+            Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(app.painmeter.core.run.Sport.BIKE to "BIKE", app.painmeter.core.run.Sport.RUN to "RUN").forEach { (sp, label) ->
+                    val on = sport == sp
+                    BigButton(
+                        if (on) "● $label" else label, Modifier.weight(1f),
+                        if (on) Pm.Blue else Pm.Surface, if (on) Color.White else Pm.Muted, onClick = { onSport(sp) },
+                    )
                 }
             }
 
@@ -117,7 +139,7 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        if (ready) "READY TO RIDE" else "GETTING READY", color = if (ready) Pm.Green else Pm.Amber,
+                        if (!ready) "GETTING READY" else if (run) "READY TO RUN" else "READY TO RIDE", color = if (ready) Pm.Green else Pm.Amber,
                         fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f),
                     )
                     Text("tap a line to fix it", color = Pm.Muted, fontSize = 12.sp)
@@ -171,13 +193,16 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("LAST RIDE · " + SimpleDateFormat("EEE d MMM", Locale.ENGLISH).format(Date(r.startMs)).uppercase(), color = Pm.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text((if (r.run) "LAST RUN · " else "LAST RIDE · ") + SimpleDateFormat("EEE d MMM", Locale.ENGLISH).format(Date(r.startMs)).uppercase(), color = Pm.Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Text(
                             "${Format.distanceKm(r.distanceM)} km · ${Format.duration(r.rideTimeMs)} · ${Math.round(r.gainM)} m",
                             color = Pm.Text, fontSize = 16.sp,
                         )
                     }
-                    r.avgPower?.let {
+                    if (r.run) {
+                        Text(Format.pace(r.avgSpeedMps), color = Pm.Power, fontFamily = Pm.Numbers, fontWeight = FontWeight.Bold, fontSize = 34.sp)
+                        Text(" /km", color = Pm.Muted, fontSize = 14.sp)
+                    } else r.avgPower?.let {
                         Text("${Math.round(it)}", color = Pm.Power, fontFamily = Pm.Numbers, fontWeight = FontWeight.Bold, fontSize = 34.sp)
                         Text(" W", color = Pm.Muted, fontSize = 14.sp)
                     }
@@ -208,9 +233,14 @@ fun HomeScreen(
             Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 BigButton("PARAMETERS", Modifier.weight(1.2f), Pm.Surface, Pm.Text, onClick = onParameters)
                 BigButton("HISTORY", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onHistory)
-                BigButton("CALIBRATE", Modifier.weight(1.1f), Pm.Surface, Pm.Text, onClick = onCalibrate)
+                if (run) BigButton("ROUTES", Modifier.weight(1.1f), Pm.Surface, Pm.Text, onClick = onRoutes)
+                else BigButton("CALIBRATE", Modifier.weight(1.1f), Pm.Surface, Pm.Text, onClick = onCalibrate)
             }
-            Text("During a ride: volume − = lap · swipe for pages · hold STOP to end", color = Pm.Muted, fontSize = 12.sp)
+            Text(
+                if (run) "Running: lap every km, spoken · volume − = lap · hold STOP to end"
+                else "During a ride: volume − = lap · swipe for pages · hold STOP to end",
+                color = Pm.Muted, fontSize = 12.sp,
+            )
         }
     }
 }

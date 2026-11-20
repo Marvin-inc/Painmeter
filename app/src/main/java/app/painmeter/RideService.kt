@@ -25,6 +25,7 @@ import java.io.File
 class RideService : Service() {
 
     private val feed by lazy { LocationFeed(this) { RideController.onLocation(it) } }
+    private val steps by lazy { StepFeed(this) { RideController.onStep(it) } }
     private val handler = Handler(Looper.getMainLooper())
     private var running = false
 
@@ -81,7 +82,7 @@ class RideService : Service() {
         )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Recording ride")
+            .setContentTitle(if ((RideController.currentSport ?: Settings.current.value.sport) == app.painmeter.core.run.Sport.RUN) "Recording run" else "Recording ride")
             .setContentText("Tap to open Painmeter")
             .setContentIntent(open)
             .setOngoing(true)
@@ -98,6 +99,7 @@ class RideService : Service() {
         HrMonitor.acquire("ride")
         Compass.start(this)
         feed.start(Settings.current.value.rawGps)
+        if (RideController.currentSport == app.painmeter.core.run.Sport.RUN) steps.start()
         handler.post(ticker)
     }
 
@@ -107,6 +109,7 @@ class RideService : Service() {
         HrMonitor.release("ride")
         Compass.stop()
         feed.stop()
+        steps.stop()
         handler.removeCallbacks(ticker)
     }
 

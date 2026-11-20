@@ -7,6 +7,12 @@ import app.painmeter.core.power.PowerParams
 import app.painmeter.core.power.PowerState
 import app.painmeter.core.power.PowerStats
 import app.painmeter.core.power.WeatherNow
+import app.painmeter.core.run.CadenceMeter
+import app.painmeter.core.run.Gap
+import app.painmeter.core.run.PaceFilter
+import app.painmeter.core.run.RunSettings
+import app.painmeter.core.run.RunStats
+import app.painmeter.core.run.Sport
 
 /** Thresholds of SPEC §3. Speeds in m/s. */
 data class RideSettings(
@@ -20,6 +26,8 @@ data class RideSettings(
     val elevationHysteresisM: Double = 4.0,
     val hrZones: HrZones = HrZones.fromMaxHr(185),
     val power: PowerParams = PowerParams(),
+    /** Used when the ride's sport is RUN (set by its Start entry). */
+    val run: RunSettings = RunSettings(),
 )
 
 /** Time-weighted heart-rate statistics over the recorded time. */
@@ -56,6 +64,12 @@ data class LapSummary(
     val maxHr: Int? = null,
     val avgPower: Double? = null,
     val maxPower: Double? = null,
+    /** Closed by the auto lap (every km when running). */
+    val auto: Boolean = false,
+    val descentM: Double = 0.0,
+    val avgCadenceSpm: Double? = null,
+    /** Average grade-adjusted speed (running), m/s. */
+    val gapSpeedMps: Double? = null,
 ) {
     val avgSpeedMps: Double get() = if (timerMs > 0) distanceM / (timerMs / 1000.0) else 0.0
 }
@@ -92,6 +106,20 @@ data class RideSnapshot(
     val normalizedPower: Double? = null,
     val lapAvgPower: Double? = null,
     val ftpW: Int = 250,
+    val sport: Sport = Sport.BIKE,
+    val elevationLossM: Double = 0.0,
+    /** Running: speed averaged over 10 s for the pace display, m/s (null when stopped / no fix). */
+    val paceSpeedMps: Double? = null,
+    /** Running: grade-adjusted speed now (smoothed speed × GAP factor of the current gradient). */
+    val gapSpeedMps: Double? = null,
+    val avgGapSpeedMps: Double? = null,
+    val lapGapSpeedMps: Double? = null,
+    /** Running: steps per minute over the last 10 s, from the phone's step detector. */
+    val cadenceSpm: Double? = null,
+    val avgCadenceSpm: Double? = null,
+    val lapAvgCadenceSpm: Double? = null,
+    /** Distance at which the current lap ends (auto lap), for "next km in". */
+    val autoLapM: Double? = null,
 ) {
     val lapAvgSpeedMps: Double get() = if (lapTimeMs > 0) lapDistanceM / (lapTimeMs / 1000.0) else 0.0
 }
@@ -141,6 +169,17 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
     private var lastFix: Fix? = null
     private var lastGoodFix: Fix? = null
     private val elevation = ElevationGain(settings.elevationHysteresisM)
+    /** Descent, counted like the gain on the altitude turned upside down. */
+    private val descent = ElevationGain(settings.elevationHysteresisM)
+    private var lapStartDescentM = 0.0
+
+    var sport = Sport.BIKE
+        private set
+    private val pace = PaceFilter()
+    private val cadence = CadenceMeter()
+    private var rideRun = RunStats()
+    private var lapRun = RunStats()
+    private var lastSteps: Pair<Long, Long>? = null
 
     private val laps = mutableListOf<LapSummary>()
     private var lapStartTimeMs = 0L
@@ -163,30 +202,43 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
 
     // ---------------------------------------------------------------- live commands
 
-    fun start(timeMs: Long): List<JournalEntry> = emit(JournalEntry.Start(timeMs))
+    fun start(timeMs: Long, sport: Sport = Sport.BIKE): List<JournalEntry> = emit(JournalEntry.Start(timeMs, sport))
 
     fun onFix(raw: Fix): List<JournalEntry> {
         if (status != RideStatus.RECORDING && status != RideStatus.PAUSED) return emptyList()
         val fix = withSpeed(raw)
         val out = mutableListOf<JournalEntry>()
         val speed = if (settings.autoPause) fix.speedMps else null
+        val run = sport == Sport.RUN
+        val resumeAbove = if (run) settings.run.autoResumeAboveMps else settings.autoResumeAboveMps
+        val pauseBelow = if (run) settings.run.autoPauseBelowMps else settings.autoPauseBelowMps
+        val pauseAfter = if (run) settings.run.autoPauseAfterMs else settings.autoPauseAfterMs
         // Resume before the sample, so the distance covered in that second counts.
-        if (speed != null && status == RideStatus.PAUSED && autoPaused && speed > settings.autoResumeAboveMps) {
+        if (speed != null && status == RideStatus.PAUSED && autoPaused && speed > resumeAbove) {
             out += emit(JournalEntry.Resume(fix.timeMs, auto = true))
         }
         out += emit(JournalEntry.Sample(fix))
         if (speed != null && status == RideStatus.RECORDING) {
-            if (speed < settings.autoPauseBelowMps) {
+            if (speed < pauseBelow) {
                 val since = slowSinceMs ?: fix.timeMs.also { slowSinceMs = it }
-                if (fix.timeMs - since >= settings.autoPauseAfterMs) {
+                if (fix.timeMs - since >= pauseAfter) {
                     out += emit(JournalEntry.Pause(fix.timeMs, auto = true))
                 }
             } else {
                 slowSinceMs = null
             }
         }
+        // Running: a lap every km (SPEC §16.3).
+        val every = settings.run.autoLapM
+        if (run && every != null && status == RideStatus.RECORDING && distanceM - lapStartDistanceM >= every) {
+            out += emit(JournalEntry.Lap(fix.timeMs, auto = true))
+        }
         return out
     }
+
+    /** The step total from the phone's step detector (running), recorded about once a second. */
+    fun onSteps(timeMs: Long, total: Long): List<JournalEntry> =
+        if (status == RideStatus.RECORDING || status == RideStatus.PAUSED) emit(JournalEntry.Steps(timeMs, total)) else emptyList()
 
     /** A heart-rate reading from the strap. */
     fun onHeartRate(timeMs: Long, bpm: Int): List<JournalEntry> =
@@ -238,6 +290,7 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
         when (e) {
             is JournalEntry.Start -> {
                 status = RideStatus.RECORDING
+                sport = e.sport
                 startTimeMs = e.timeMs
                 segmentStartMs = e.timeMs
                 lapStartTimeMs = e.timeMs
@@ -246,7 +299,8 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             is JournalEntry.HeartRate -> applyHr(e.timeMs, e.bpm)
             is JournalEntry.Draft -> engine.setDrafting(e.onWheel)
             is JournalEntry.Weather -> engine.setWeather(e.weather)
-            is JournalEntry.Lap -> closeLap(e.timeMs, bySession = false)
+            is JournalEntry.Lap -> closeLap(e.timeMs, bySession = false, auto = e.auto)
+            is JournalEntry.Steps -> applySteps(e.timeMs, e.total)
             is JournalEntry.Pause -> if (status == RideStatus.RECORDING) {
                 timerMs += e.timeMs - (segmentStartMs ?: e.timeMs)
                 segmentStartMs = null
@@ -254,6 +308,8 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
                 autoPaused = e.auto
                 slowSinceMs = null
                 engine.reset()
+                pace.reset()
+                cadence.reset()
             }
             is JournalEntry.Resume -> if (status == RideStatus.PAUSED) {
                 status = RideStatus.RECORDING
@@ -272,9 +328,10 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
 
     private fun applyFix(fix: Fix) {
         val good = fix.accuracyM == null || fix.accuracyM <= settings.maxAccuracyM
+        var step = 0.0
         if (status == RideStatus.RECORDING && good) {
-            lastGoodFix?.let { distanceM += Geo.distanceM(it, fix) }
-            (fix.demAltitudeM ?: fix.altitudeM)?.let { elevation.add(it) }
+            lastGoodFix?.let { step = Geo.distanceM(it, fix); distanceM += step }
+            (fix.demAltitudeM ?: fix.altitudeM)?.let { elevation.add(it); descent.add(-it) }
             speedOf(fix)?.let { if (it > maxSpeedMps) maxSpeedMps = it }
         }
         if (status == RideStatus.RECORDING) {
@@ -290,7 +347,14 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
                     gradeOverridePercent = fix.routeGradePercent ?: fix.terrainGradePercent,
                 )
             )
-            p.power1Hz?.let { ridePower.add(it, p.power30s); lapPower.add(it, p.power30s) }
+            if (sport == Sport.BIKE) p.power1Hz?.let { ridePower.add(it, p.power30s); lapPower.add(it, p.power30s) }
+            if (sport == Sport.RUN) {
+                pace.add(fix.timeMs, fix.speedMps)
+                if (step > 0) {
+                    rideRun.addDistance(step, p.gradePercent)
+                    lapRun.addDistance(step, p.gradePercent)
+                }
+            }
         }
         // While paused the position still moves on, so a resume does not add the distance walked.
         if (good) lastGoodFix = fix
@@ -312,7 +376,20 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
         lastHrBpm = bpm
     }
 
-    private fun closeLap(timeMs: Long, bySession: Boolean) {
+    private fun applySteps(timeMs: Long, total: Long) {
+        val last = lastSteps
+        lastSteps = timeMs to total
+        if (status != RideStatus.RECORDING) return
+        cadence.add(timeMs, total)
+        if (last == null || total < last.second) return
+        // Each reading counts for the time since the previous one, capped at 2 s (as the HR).
+        val over = (timeMs - last.first).coerceIn(0, 2_000)
+        val n = total - last.second
+        rideRun.addSteps(n, over)
+        lapRun.addSteps(n, over)
+    }
+
+    private fun closeLap(timeMs: Long, bySession: Boolean, auto: Boolean = false) {
         val timerNow = currentTimerMs(timeMs)
         laps += LapSummary(
             index = laps.size,
@@ -326,9 +403,15 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             maxHr = lapHr.max,
             avgPower = lapPower.average,
             maxPower = lapPower.max.takeIf { lapPower.average != null },
+            auto = auto,
+            descentM = descent.totalM - lapStartDescentM,
+            avgCadenceSpm = lapRun.avgCadenceSpm,
+            gapSpeedMps = lapRun.gapSpeedMps(timerNow - lapStartTimerMs),
         )
         lapHr = HrStats()
         lapPower = PowerStats()
+        lapRun = RunStats()
+        lapStartDescentM = descent.totalM
         lapStartTimeMs = timeMs
         lapStartTimerMs = timerNow
         lapStartDistanceM = distanceM
@@ -373,6 +456,26 @@ class RideSession(private val settings: RideSettings = RideSettings()) {
             normalizedPower = ridePower.normalized,
             lapAvgPower = lapPower.average,
             ftpW = settings.power.ftpW,
+            sport = sport,
+            elevationLossM = descent.totalM,
+        ).let { if (sport == Sport.RUN) withRun(it, nowMs, timer) else it }
+    }
+
+    /** Running: pace, GAP and cadence; no power (the bike model means nothing on foot). */
+    private fun withRun(s: RideSnapshot, nowMs: Long, timer: Long): RideSnapshot {
+        val recording = status == RideStatus.RECORDING
+        val v = if (recording && s.speedMps != null) pace.speedMps(nowMs) else null
+        val grade = engine.state.gradePercent
+        return s.copy(
+            avgPower = null, maxPower = null, normalizedPower = null, lapAvgPower = null,
+            paceSpeedMps = v,
+            gapSpeedMps = v?.let { it * (grade?.let(Gap::factor) ?: 1.0) },
+            avgGapSpeedMps = rideRun.gapSpeedMps(timer),
+            lapGapSpeedMps = lapRun.gapSpeedMps(timer - lapStartTimerMs),
+            cadenceSpm = if (recording) cadence.spm(nowMs) else null,
+            avgCadenceSpm = rideRun.avgCadenceSpm,
+            lapAvgCadenceSpm = lapRun.avgCadenceSpm,
+            autoLapM = settings.run.autoLapM?.let { lapStartDistanceM + it },
         )
     }
 

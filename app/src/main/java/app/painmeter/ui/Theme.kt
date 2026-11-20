@@ -63,4 +63,14 @@ object Format {
     fun watts(w: Double?): String = w?.let { Math.round(it).toString() } ?: "--"
 
     fun metres(m: Double): String = String.format(Locale.ROOT, "%.0f", m)
+
+    /** Running pace "m:ss" per km; "--" when stopped or slower than 30:00/km. */
+    fun pace(mps: Double?): String {
+        if (mps == null || mps < 1000.0 / 1800) return "--"
+        val s = Math.round(1000 / mps)
+        return String.format(Locale.ROOT, "%d:%02d", s / 60, s % 60)
+    }
+
+    /** Steps per minute. */
+    fun cadence(spm: Double?): String = spm?.let { Math.round(it).toString() } ?: "--"
 }

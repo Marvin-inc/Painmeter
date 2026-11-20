@@ -68,7 +68,8 @@ fun HistoryScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
             ) {
-                items(rides, key = { it.first.name }) { (dir, s) ->
+                // A run cannot calibrate the bike's CdA / Crr.
+                items(if (pickForCalibration) rides.filter { !it.second.run } else rides, key = { it.first.name }) { (dir, s) ->
                     Column(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Pm.Surface)
                             .clickable(onClickLabel = if (pickForCalibration) "Calibrate from this ride" else "Open the summary") {
@@ -77,18 +78,21 @@ fun HistoryScreen(
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(fmt.format(Date(s.startMs)), color = Pm.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text((if (s.run) "RUN · " else "") + fmt.format(Date(s.startMs)), color = Pm.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("${Format.distanceKm(s.distanceM)} km", color = Pm.Text, fontSize = 15.sp)
                             Text(Format.duration(s.rideTimeMs), color = Pm.Text, fontSize = 15.sp)
                             Text("${Math.round(s.gainM)} m", color = Pm.Text, fontSize = 15.sp)
-                            Text(s.avgPower?.let { "${Math.round(it)} W" } ?: "", color = Pm.Power, fontSize = 15.sp)
+                            Text(
+                                if (s.run) "${Format.pace(s.avgSpeedMps)} /km" else s.avgPower?.let { "${Math.round(it)} W" } ?: "",
+                                color = Pm.Power, fontSize = 15.sp,
+                            )
                             Text(s.avgHr?.let { "$it bpm" } ?: "", color = Pm.Muted, fontSize = 15.sp)
                         }
                         if (!pickForCalibration) {
                             Row(Modifier.fillMaxWidth().height(44.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 BigButton("SHARE FIT", Modifier.weight(1f), Pm.SurfaceAlt, Pm.Text, onClick = { onShare(dir) })
-                                BigButton("CALIBRATE", Modifier.weight(1f), Pm.SurfaceAlt, Pm.Text, onClick = { onCalibrate(dir) })
+                                if (!s.run) BigButton("CALIBRATE", Modifier.weight(1f), Pm.SurfaceAlt, Pm.Text, onClick = { onCalibrate(dir) })
                                 if (confirmDelete == dir) {
                                     BigButton("SURE?", Modifier.weight(0.8f), Pm.Rec, Color.White, onClick = { onDelete(dir); confirmDelete = null })
                                 } else {

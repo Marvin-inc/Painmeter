@@ -53,7 +53,14 @@ import org.mapsforge.map.datastore.MultiMapDataStore
 import org.mapsforge.map.layer.overlay.Polyline
 import org.mapsforge.map.layer.renderer.TileRendererLayer
 import org.mapsforge.map.reader.MapFile
+import org.mapsforge.map.rendertheme.XmlRenderTheme
+import org.mapsforge.map.rendertheme.XmlRenderThemeMenuCallback
+import org.mapsforge.map.rendertheme.XmlRenderThemeStyleMenu
+import org.mapsforge.map.rendertheme.ZipRenderTheme
+import org.mapsforge.map.rendertheme.ZipXmlThemeResourceProvider
 import org.mapsforge.map.rendertheme.internal.MapsforgeThemes
+import app.painmeter.MapThemeFile
+import app.painmeter.core.run.Sport
 import java.io.File
 import java.util.Locale
 
@@ -65,7 +72,10 @@ fun MapPage(
     track: RideController.Track,
     maps: List<File>,
     modifier: Modifier = Modifier,
+    /** Imported theme to draw with (null: built-in Biker theme). */
+    theme: MapThemeFile? = null,
 ) {
+    val run = snap.sport == Sport.RUN
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val st = nav?.state
         when {
@@ -101,7 +111,7 @@ fun MapPage(
                     color = Pm.Muted, fontSize = 15.sp, modifier = Modifier.align(Alignment.Center).padding(24.dp),
                 )
             } else {
-                MapsforgeMap(maps, nav, track, Modifier.fillMaxSize())
+                MapsforgeMap(maps, nav, track, Modifier.fillMaxSize(), theme, snap.sport)
             }
             if (maps.isEmpty() && track.position != null) {
                 Text(
@@ -119,11 +129,16 @@ fun MapPage(
                 if (nav != null) "TO FINISH · km" else "DIST · km",
                 Format.distanceKm(nav?.state?.remainingM ?: snap.distanceM), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp,
             )
-            DataField("SPEED", Format.speedKmh(snap.speedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp)
-            DataField(
-                "POWER ${snap.power.windowS} s", Format.watts(snap.power.powerShort), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp,
-                valueColor = if (snap.power.reliable) Pm.Power else Pm.Uncertain,
-            )
+            if (run) {
+                DataField("PACE · /km", Format.pace(snap.paceSpeedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp, valueColor = Pm.Power)
+                DataField("TIME", Format.duration(snap.rideTimeMs), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp)
+            } else {
+                DataField("SPEED", Format.speedKmh(snap.speedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp)
+                DataField(
+                    "POWER ${snap.power.windowS} s", Format.watts(snap.power.powerShort), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp,
+                    valueColor = if (snap.power.reliable) Pm.Power else Pm.Uncertain,
+                )
+            }
         }
     }
 }
@@ -187,7 +202,10 @@ private fun RiderArrow(modifier: Modifier) {
 
 /** Mapsforge view: map files, route (blue), ridden track (cyan), centred on the rider, heading up. */
 @Composable
-private fun MapsforgeMap(maps: List<File>, nav: RideController.Nav?, track: RideController.Track, modifier: Modifier) {
+private fun MapsforgeMap(
+    maps: List<File>, nav: RideController.Nav?, track: RideController.Track, modifier: Modifier,
+    theme: MapThemeFile? = null, sport: Sport = Sport.BIKE,
+) {
     val context = LocalContext.current
     var zoom by remember { mutableIntStateOf(MapPrefs.zoom(context)) }
     val holder = remember { MapHolder(context) }
@@ -209,7 +227,7 @@ private fun MapsforgeMap(maps: List<File>, nav: RideController.Nav?, track: Ride
         AndroidView(factory = { holder.view }, modifier = Modifier.fillMaxSize(), update = { v ->
             // Every change makes Mapsforge redraw: only pass what really changed, or a map turned by
             // the compass many times a second (when stopped) never gets time to draw its tiles.
-            holder.setMaps(maps)
+            holder.setMaps(maps, theme, sport)
             holder.setRoute(nav?.route)
             holder.setTrack(track.points)
             holder.setView(track.position, zoom, heading)
@@ -253,7 +271,7 @@ private class MapHolder(context: Context) {
         setBuiltInZoomControls(false)
     }
     private val cache = AndroidUtil.createTileCache(context, "painmeter", view.model.displayModel.tileSize, 1f, view.model.frameBufferModel.overdrawFactor)
-    private var mapsKey: List<File>? = null
+    private var mapsKey: Triple<List<File>, MapThemeFile?, Sport>? = null
     private var tiles: TileRendererLayer? = null
     private var routeKey: app.painmeter.core.route.Route? = null
     private var center: Pair<Double, Double>? = null
@@ -282,16 +300,17 @@ private class MapHolder(context: Context) {
     private var trackLine: Polyline? = null
     private var trackSize = -1
 
-    fun setMaps(maps: List<File>) {
-        if (maps == mapsKey) return
-        mapsKey = maps
+    fun setMaps(maps: List<File>, theme: MapThemeFile? = null, sport: Sport = Sport.BIKE) {
+        val key = Triple(maps, theme, sport)
+        if (key == mapsKey) return
+        mapsKey = key
         tiles?.let { view.layerManager.layers.remove(it); it.onDestroy() }
         tiles = null
         if (maps.isEmpty()) return
         val store = MultiMapDataStore(MultiMapDataStore.DataPolicy.RETURN_ALL)
         maps.forEach { f -> runCatching { store.addMapDataStore(MapFile(f), false, false) } }
         tiles = TileRendererLayer(cache, store, view.model.mapViewPosition, AndroidGraphicFactory.INSTANCE).apply {
-            setXmlRenderTheme(MapsforgeThemes.BIKER)
+            setXmlRenderTheme(renderTheme(theme, sport))
         }
         view.layerManager.layers.add(0, tiles)
     }
@@ -331,11 +350,42 @@ private class MapHolder(context: Context) {
 }
 
 /**
+ * The render theme: the imported one (OpenAndroMaps Elevate) when there is one, else the built-in
+ * Biker theme. A theme that cannot be read falls back to Biker rather than leaving the map blank.
+ */
+private fun renderTheme(theme: MapThemeFile?, sport: Sport): XmlRenderTheme {
+    if (theme == null) return MapsforgeThemes.BIKER
+    return runCatching {
+        val provider = java.util.zip.ZipInputStream(theme.zip.inputStream().buffered()).use { ZipXmlThemeResourceProvider(it) }
+        ZipRenderTheme(theme.xml, provider, StyleChooser(sport))
+    }.getOrElse { MapsforgeThemes.BIKER }
+}
+
+/**
+ * Picks the style of a theme with several (Elevate has hiking, cycling, MTB, city…): for a run
+ * the first whose id or title speaks of hiking or trails, for a ride of cycling; otherwise the
+ * theme's default. Overlays turned on by default in that style are kept.
+ */
+internal class StyleChooser(private val sport: Sport) : XmlRenderThemeMenuCallback {
+    override fun getCategories(menu: XmlRenderThemeStyleMenu): Set<String> {
+        val visible = menu.layers.values.filter { it.isVisible }
+        val words = if (sport == Sport.RUN) listOf("hik", "wander", "trail", "walk", "foot", "rando")
+        else listOf("cycl", "bike", "road", "velo", "rad")
+        val layer = words.firstNotNullOfOrNull { w ->
+            visible.firstOrNull { l -> l.id.lowercase().contains(w) || l.titles.values.any { it.lowercase().contains(w) } }
+        } ?: menu.getLayer(menu.defaultValue) ?: return emptySet()
+        val cats = layer.categories.toMutableSet()
+        layer.overlays.filter { it.isEnabled }.forEach { cats += it.categories }
+        return cats
+    }
+}
+
+/**
  * A still map of a whole route (north up), for the route preview. Without offline map files
  * it shows the route line on a plain background.
  */
 @Composable
-fun RouteMapPreview(route: app.painmeter.core.route.Route, maps: List<File>, modifier: Modifier) {
+fun RouteMapPreview(route: app.painmeter.core.route.Route, maps: List<File>, modifier: Modifier, theme: MapThemeFile? = null, sport: Sport = Sport.BIKE) {
     if (LocalInspectionMode.current || maps.isEmpty()) {
         RouteShape(route, modifier.background(Color(0xFF161B22)).padding(16.dp), Pm.Blue, 6f)
         return
@@ -344,7 +394,7 @@ fun RouteMapPreview(route: app.painmeter.core.route.Route, maps: List<File>, mod
     val holder = remember { MapHolder(context) }
     DisposableEffect(Unit) { onDispose { holder.destroy() } }
     AndroidView(factory = { holder.view }, modifier = modifier, update = { v ->
-        holder.setMaps(maps)
+        holder.setMaps(maps, theme, sport)
         holder.setRoute(route)
         if (v.width > 0 && v.height > 0) {
             val lats = route.points.map { it.lat }

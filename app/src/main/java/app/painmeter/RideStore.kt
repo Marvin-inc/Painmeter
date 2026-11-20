@@ -36,18 +36,23 @@ class RideStore(context: Context) {
     data class Summary(
         val startMs: Long, val rideTimeMs: Long, val distanceM: Double, val gainM: Double,
         val avgPower: Double?, val np: Double?, val avgHr: Int?,
-    )
+        /** A run (SPEC §16): shown with its pace instead of the power. */
+        val run: Boolean = false,
+    ) {
+        val avgSpeedMps: Double get() = if (rideTimeMs > 0) distanceM / (rideTimeMs / 1000.0) else 0.0
+    }
 
     fun writeSummary(dir: File, s: app.painmeter.core.RideSnapshot) {
         File(dir, "summary.txt").writeText(
-            listOf(s.startTimeMs ?: 0, s.rideTimeMs, s.distanceM, s.elevationGainM, s.avgPower ?: "", s.normalizedPower ?: "", s.avgHr ?: "")
+            listOf(s.startTimeMs ?: 0, s.rideTimeMs, s.distanceM, s.elevationGainM, s.avgPower ?: "", s.normalizedPower ?: "", s.avgHr ?: "",
+                if (s.sport == app.painmeter.core.run.Sport.RUN) "RUN" else "BIKE")
                 .joinToString(",")
         )
     }
 
     fun readSummary(dir: File): Summary? = try {
         val f = File(dir, "summary.txt").readText().trim().split(',')
-        Summary(f[0].toLong(), f[1].toLong(), f[2].toDouble(), f[3].toDouble(), f[4].toDoubleOrNull(), f[5].toDoubleOrNull(), f[6].toIntOrNull())
+        Summary(f[0].toLong(), f[1].toLong(), f[2].toDouble(), f[3].toDouble(), f[4].toDoubleOrNull(), f[5].toDoubleOrNull(), f[6].toIntOrNull(), f.getOrNull(7) == "RUN")
     } catch (_: Exception) {
         null
     }

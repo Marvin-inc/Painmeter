@@ -1,6 +1,7 @@
 package app.painmeter.core
 
 import app.painmeter.core.power.WeatherNow
+import app.painmeter.core.run.Sport
 import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
@@ -14,12 +15,15 @@ import java.util.Locale
 sealed interface JournalEntry {
     val timeMs: Long
 
-    data class Start(override val timeMs: Long) : JournalEntry
+    data class Start(override val timeMs: Long, val sport: Sport = Sport.BIKE) : JournalEntry
     data class Sample(val fix: Fix) : JournalEntry {
         override val timeMs: Long get() = fix.timeMs
     }
     data class HeartRate(override val timeMs: Long, val bpm: Int) : JournalEntry
-    data class Lap(override val timeMs: Long) : JournalEntry
+    /** A lap: from the button or volume key, or [auto] every km when running. */
+    data class Lap(override val timeMs: Long, val auto: Boolean = false) : JournalEntry
+    /** Total steps counted by the phone's step detector since the ride started (running). */
+    data class Steps(override val timeMs: Long, val total: Long) : JournalEntry
     /** Rider switched between Solo (false) and On a wheel (true). */
     data class Draft(override val timeMs: Long, val onWheel: Boolean) : JournalEntry
     /** New weather from the forecast service. */
@@ -32,24 +36,26 @@ sealed interface JournalEntry {
 /**
  * One line of text per entry, comma separated, empty field = unknown:
  * ```
- * START,<t>
+ * START,<t>[,RUN]                              (no sport = BIKE, rides recorded before running)
  * S,<t>,<lat>,<lon>,<alt>,<speed>,<accuracy>,<dem alt>,<route grade %>,<terrain grade %>
  * D,<t>,<1|0>                                   (On a wheel / Solo)
  * W,<t>,<wind m/s>,<wind from °>,<°C>,<RH %>,<Pa MSL>
  * H,<t>,<bpm>
- * LAP,<t>
+ * LAP,<t>[,A]                                  (A = auto lap)
+ * STEPS,<t>,<total steps>
  * PAUSE,<t>,<A|M>      RESUME,<t>,<A|M>
  * STOP,<t>
  * ```
  */
 object JournalCodec {
     fun encode(e: JournalEntry): String = when (e) {
-        is JournalEntry.Start -> "START,${e.timeMs}"
+        is JournalEntry.Start -> if (e.sport == Sport.BIKE) "START,${e.timeMs}" else "START,${e.timeMs},${e.sport.name}"
         is JournalEntry.Sample -> with(e.fix) {
             "S,$timeMs,${num(lat, 7)},${num(lon, 7)},${num(altitudeM, 1)},${num(speedMps, 2)},${num(accuracyM, 1)},${num(demAltitudeM, 1)},${num(routeGradePercent, 2)},${num(terrainGradePercent, 2)}"
         }
         is JournalEntry.HeartRate -> "H,${e.timeMs},${e.bpm}"
-        is JournalEntry.Lap -> "LAP,${e.timeMs}"
+        is JournalEntry.Lap -> if (e.auto) "LAP,${e.timeMs},A" else "LAP,${e.timeMs}"
+        is JournalEntry.Steps -> "STEPS,${e.timeMs},${e.total}"
         is JournalEntry.Draft -> "D,${e.timeMs},${if (e.onWheel) 1 else 0}"
         is JournalEntry.Weather -> with(e.weather) {
             "W,${e.timeMs},${num(windSpeedMps, 2)},${num(windFromDeg, 0)},${num(tempC, 1)},${num(rhPercent, 0)},${num(pressureMslPa, 0)}"
@@ -63,7 +69,7 @@ object JournalCodec {
     fun decode(line: String): JournalEntry? = try {
         val f = line.trim().split(',')
         when (f[0]) {
-            "START" -> JournalEntry.Start(f[1].toLong())
+            "START" -> JournalEntry.Start(f[1].toLong(), f.getOrNull(2)?.let { v -> Sport.entries.firstOrNull { it.name == v } } ?: Sport.BIKE)
             "S" -> if (f.size < 7) null else JournalEntry.Sample(
                 Fix(
                     timeMs = f[1].toLong(),
@@ -78,7 +84,8 @@ object JournalCodec {
                 )
             )
             "H" -> JournalEntry.HeartRate(f[1].toLong(), f[2].toInt())
-            "LAP" -> JournalEntry.Lap(f[1].toLong())
+            "LAP" -> JournalEntry.Lap(f[1].toLong(), f.getOrNull(2) == "A")
+            "STEPS" -> JournalEntry.Steps(f[1].toLong(), f[2].toLong())
             "D" -> JournalEntry.Draft(f[1].toLong(), f[2] == "1")
             "W" -> if (f.size < 7) null else JournalEntry.Weather(
                 f[1].toLong(), WeatherNow(f[2].toDouble(), f[3].toDouble(), f[4].toDouble(), f[5].toDouble(), f[6].toDouble())

@@ -50,6 +50,7 @@ import app.painmeter.HrState
 import app.painmeter.RideController
 import app.painmeter.core.RideSnapshot
 import app.painmeter.core.RideStatus
+import app.painmeter.core.run.Sport
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -75,7 +76,9 @@ fun RideScreen(
     zones: app.painmeter.core.HrZones? = null,
     /** Set while riding a coast-down test: the test page replaces the ride pages. */
     calibrationRuns: RideController.CalibRuns? = null,
+    theme: app.painmeter.MapThemeFile? = null,
 ) {
+    val run = snap.sport == Sport.RUN
     val context = LocalContext.current
     val drafting = snap.power.drafting
     val view = LocalView.current
@@ -141,7 +144,7 @@ fun RideScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        if (snap.autoPaused) "AUTO-PAUSED · starts again when you ride" else "PAUSED",
+                        if (!snap.autoPaused) "PAUSED" else if (run) "AUTO-PAUSED · starts again when you move" else "AUTO-PAUSED · starts again when you ride",
                         color = Pm.Amber, fontWeight = FontWeight.Bold, fontSize = 14.sp,
                     )
                 }
@@ -176,7 +179,7 @@ fun RideScreen(
                 CalibrationRidePage(snap, calibrationRuns, onLap, Modifier.weight(1f).padding(10.dp))
             } else HorizontalPager(state = pager, modifier = Modifier.weight(1f), beyondViewportPageCount = 1) { page ->
                 when (page % PAGES) {
-                    0 -> Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    0 -> if (run) RunDataPage(snap, clock, Modifier.fillMaxSize().padding(10.dp)) else Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val p10 = snap.power.powerShort
                 DataField(
                     "POWER ${snap.power.windowS} s · W", p10?.let { Math.round(it).toString() } ?: "--", Modifier.fillMaxWidth().weight(1.35f),
@@ -208,7 +211,7 @@ fun RideScreen(
                                 }
                     CLIMB_PAGE -> ClimbPage(snap, climb, Modifier.fillMaxSize().padding(10.dp))
                     LAP_PAGE -> LapPage(snap, zones, onLap, Modifier.fillMaxSize().padding(10.dp))
-                    else -> MapPage(snap, nav, track, maps, Modifier.fillMaxSize().padding(10.dp))
+                    else -> MapPage(snap, nav, track, maps, Modifier.fillMaxSize().padding(10.dp), theme)
                 }
             }
             if (calibrationRuns == null) PageDots(pager.currentPage % PAGES, PAGES)
@@ -231,7 +234,8 @@ fun RideScreen(
                 BigButton("LAP ${snap.lapNumber}", Modifier.weight(1.2f), Pm.Blue, Color.White, onClick = onLap)
                 BigButton("HOLD\nTO STOP", Modifier.weight(1f), Pm.Surface, Pm.Rec, onLongClick = onStop)
             }
-            Row(
+            // Running has no drafting: the buttons sit lower, and are easier to hit on the move.
+            if (run) androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp)) else Row(
                 Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 12.dp).height(60.dp),
             ) {
                 BigButton(
@@ -260,6 +264,38 @@ fun RideScreen(
             ) {
                 Text("LAP $n", color = Color.White, fontFamily = Pm.Numbers, fontWeight = FontWeight.Bold, fontSize = 72.sp)
             }
+        }
+    }
+}
+
+/**
+ * The Data page when running (SPEC §16.5): pace big, then GAP and HR, then the clock, gradient
+ * and cadence, then time, distance and climb.
+ */
+@Composable
+private fun RunDataPage(snap: RideSnapshot, clock: String, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        DataField(
+            "PACE · min/km", Format.pace(snap.paceSpeedMps), Modifier.fillMaxWidth().weight(1.35f),
+            valueSize = 150.sp, valueColor = if (snap.paceSpeedMps == null) Pm.Disabled else Pm.Power,
+        )
+        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DataField("GAP · grade-adjusted", Format.pace(snap.gapSpeedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 88.sp)
+            HrField(snap.hrBpm, snap.hrZone, Modifier.weight(1f).fillMaxHeight(), valueSize = 88.sp)
+        }
+        Row(Modifier.fillMaxWidth().weight(0.62f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DataField("CLOCK", clock, Modifier.weight(1f).fillMaxHeight())
+            val grade = snap.power.gradePercent
+            DataField(
+                "GRADE · %", grade?.let { Format.grade(it) } ?: "--", Modifier.weight(1f).fillMaxHeight(),
+                valueColor = grade?.let { Pm.gradeColor(it) } ?: Pm.Disabled,
+            )
+            DataField("CADENCE · spm", Format.cadence(snap.cadenceSpm), Modifier.weight(1f).fillMaxHeight())
+        }
+        Row(Modifier.fillMaxWidth().weight(0.62f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DataField("TIME", Format.duration(snap.rideTimeMs), Modifier.weight(1f).fillMaxHeight(), valueSize = 40.sp)
+            DataField("DIST · km", Format.distanceKm(snap.distanceM), Modifier.weight(1f).fillMaxHeight())
+            DataField("D+ · m", Format.metres(snap.elevationGainM), Modifier.weight(1f).fillMaxHeight())
         }
     }
 }

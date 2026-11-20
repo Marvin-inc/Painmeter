@@ -143,6 +143,8 @@ fun RoutePreviewScreen(
     active: Boolean,
     analysis: Pair<RouteProfile, List<RouteClimb>>?,
     maps: List<File>,
+    theme: app.painmeter.MapThemeFile? = null,
+    sport: app.painmeter.core.run.Sport = app.painmeter.core.run.Sport.BIKE,
     onUse: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
@@ -156,7 +158,7 @@ fun RoutePreviewScreen(
     Column(Modifier.fillMaxSize().background(Pm.Background)) {
         TopBar(saved.name, onBack)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            RouteMapPreview(r, maps, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(14.dp)))
+            RouteMapPreview(r, maps, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(14.dp)), theme, sport)
             Row(Modifier.fillMaxWidth().height(80.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DataField("DISTANCE · km", Format.distanceKm(r.lengthM), Modifier.weight(1f), valueSize = 36.sp)
                 DataField("GAIN · m", (analysis?.first?.let { gainOf(it) } ?: r.gainM)?.let { Math.round(it).toString() } ?: "--", Modifier.weight(1f), valueSize = 36.sp)

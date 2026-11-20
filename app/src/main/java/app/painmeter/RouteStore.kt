@@ -9,6 +9,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
+/** An imported map theme (OpenAndroMaps Elevate): the zip, the theme file inside it, its name. */
+data class MapThemeFile(val zip: File, val xml: String, val name: String)
+
 /** A route in the library. */
 data class SavedRoute(
     val id: String,
@@ -27,6 +30,7 @@ object RouteStore {
     private lateinit var app: Context
     private lateinit var routesDir: File
     private lateinit var mapsDir: File
+    private lateinit var themesDir: File
     private val prefs by lazy { app.getSharedPreferences("routes", Context.MODE_PRIVATE) }
 
     private val _library = MutableStateFlow<List<SavedRoute>>(emptyList())
@@ -43,11 +47,16 @@ object RouteStore {
     private val _maps = MutableStateFlow<List<File>>(emptyList())
     val maps: StateFlow<List<File>> = _maps
 
+    private val _theme = MutableStateFlow<MapThemeFile?>(null)
+    /** The imported map theme, null when none (the built-in Biker theme is used). */
+    val theme: StateFlow<MapThemeFile?> = _theme
+
     fun init(context: Context) {
         if (::app.isInitialized) return
         app = context.applicationContext
         routesDir = File(app.filesDir, "routes").apply { mkdirs() }
         mapsDir = File(app.filesDir, "maps").apply { mkdirs() }
+        themesDir = File(app.filesDir, "themes").apply { mkdirs() }
         // Before the library there was a single route.gpx: keep it, as the active route.
         val old = File(app.filesDir, "route.gpx")
         if (old.exists()) {
@@ -57,6 +66,7 @@ object RouteStore {
         _activeId.value = prefs.getString("active", null)
         reload()
         refreshMaps()
+        refreshTheme()
     }
 
     private fun gpx(id: String) = File(routesDir, "$id.gpx")
@@ -146,18 +156,83 @@ object RouteStore {
     /** Back to a free ride (the route stays in the library). */
     fun clearRoute() = select(null)
 
-    /** Imports a Mapsforge .map file (can take a few seconds for a big region). */
+    /**
+     * Imports a map or a map theme (can take a minute for a big region):
+     * - a Mapsforge `.map` file (download.mapsforge.org or OpenAndroMaps);
+     * - a `.zip` holding a `.map` (OpenAndroMaps downloads): the map is taken out of it;
+     * - a `.zip` holding a render theme (`.xml` + its symbols, e.g. OpenAndroMaps Elevate): kept as
+     *   the map theme, replacing the previous one.
+     * Returns an error message, or null when it worked.
+     */
     fun importMap(uri: Uri): String? = runCatching { importMapOrThrow(uri) }.getOrElse { "Import failed: ${it.message}" }
 
+    /** What [importMap] imported last: "map" or "theme". */
+    var lastImportKind: String = "map"
+        private set
+
     private fun importMapOrThrow(uri: Uri): String? {
-        val name = displayName(uri)?.takeIf { it.endsWith(".map") } ?: return "Choose a .map file (Mapsforge format)"
-        val target = File(mapsDir, name)
-        val tmp = File(mapsDir, "$name.part")
-        app.contentResolver.openInputStream(uri)?.use { input -> tmp.outputStream().use { input.copyTo(it) } }
-            ?: return "Cannot open the file"
-        tmp.renameTo(target)
-        refreshMaps()
+        val name = displayName(uri) ?: return "Cannot read the file name"
+        if (name.endsWith(".map", ignoreCase = true)) {
+            copyTo(uri, File(mapsDir, name)) ?: return "Cannot open the file"
+            lastImportKind = "map"
+            refreshMaps()
+            return null
+        }
+        if (!name.endsWith(".zip", ignoreCase = true)) return "Choose a .map file, or a .zip from OpenAndroMaps (map or Elevate theme)"
+
+        // First pass: a map inside? Take it out. Otherwise look for a theme (.xml at any level).
+        val themes = mutableListOf<String>()
+        val input = app.contentResolver.openInputStream(uri) ?: return "Cannot open the file"
+        java.util.zip.ZipInputStream(input.buffered()).use { zip ->
+            while (true) {
+                val e = zip.nextEntry ?: break
+                val entry = e.name
+                if (!e.isDirectory && entry.endsWith(".map", ignoreCase = true)) {
+                    val target = File(mapsDir, entry.substringAfterLast('/'))
+                    val tmp = File(mapsDir, "${target.name}.part")
+                    tmp.outputStream().use { zip.copyTo(it) }
+                    tmp.renameTo(target)
+                    lastImportKind = "map"
+                    refreshMaps()
+                    return null
+                }
+                if (!e.isDirectory && entry.endsWith(".xml", ignoreCase = true)) themes += entry
+            }
+        }
+        val xml = pickThemeXml(themes) ?: return "No .map file and no map theme found in this zip"
+        val target = File(themesDir, "theme.zip")
+        copyTo(uri, target) ?: return "Cannot open the file"
+        File(themesDir, "theme.txt").writeText("$xml\n${name.removeSuffix(".zip").removeSuffix(".ZIP")}")
+        lastImportKind = "theme"
+        refreshTheme()
         return null
+    }
+
+    /**
+     * The main theme file of a theme zip: the shallowest .xml, the shortest name first, so
+     * "Elevate.xml" wins over "Elevate_hike.xml" and over files in sub-folders.
+     */
+    internal fun pickThemeXml(entries: List<String>): String? =
+        entries.filter { !it.substringAfterLast('/').startsWith(".") }
+            .minWithOrNull(compareBy<String> { it.count { c -> c == '/' } }.thenBy { it.length })
+
+    private fun copyTo(uri: Uri, target: File): Unit? {
+        val tmp = File(target.parentFile, "${target.name}.part")
+        app.contentResolver.openInputStream(uri)?.use { input -> tmp.outputStream().use { input.copyTo(it) } } ?: return null
+        tmp.renameTo(target)
+        return Unit
+    }
+
+    fun deleteTheme() {
+        File(themesDir, "theme.zip").delete()
+        File(themesDir, "theme.txt").delete()
+        refreshTheme()
+    }
+
+    private fun refreshTheme() {
+        val zip = File(themesDir, "theme.zip")
+        val info = runCatching { File(themesDir, "theme.txt").readLines() }.getOrNull()
+        _theme.value = if (zip.exists() && info != null && info.isNotEmpty()) MapThemeFile(zip, info[0], info.getOrNull(1) ?: "Theme") else null
     }
 
     fun deleteMap(file: File) {

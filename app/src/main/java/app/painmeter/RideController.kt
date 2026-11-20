@@ -9,6 +9,7 @@ import app.painmeter.core.LapSummary
 import app.painmeter.core.RideSession
 import app.painmeter.core.RideSnapshot
 import app.painmeter.core.RideStatus
+import app.painmeter.core.run.Sport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,6 +60,25 @@ object RideController {
     val laps: SharedFlow<Int> = _laps
 
     val isActive: Boolean get() = session?.status.let { it == RideStatus.RECORDING || it == RideStatus.PAUSED }
+
+    /** Sport of the ride in progress, null when none. */
+    val currentSport: Sport? get() = session?.sport
+
+    // Running cadence: steps counted by the step detector, recorded once a second (SPEC §16.2).
+    private var stepTotal = 0L
+    private var recordedSteps = -1L
+
+    /** Steps from the step detector (main thread). */
+    fun onStep(n: Int) {
+        if (session?.sport == Sport.RUN) stepTotal += n
+    }
+
+    /** A lap was just closed (button, volume key or auto lap): flash, vibrate, and speak it when running. */
+    private fun lapClosed(s: RideSession) {
+        _laps.tryEmit(s.completedLaps.size)
+        val lap = s.completedLaps.lastOrNull() ?: return
+        if (s.sport == Sport.RUN && Settings.current.value.voiceCues) Voice.say(Voice.lapText(lap, s.snapshot(lap.endTimeMs).distanceM))
+    }
 
     private var compassJob: kotlinx.coroutines.Job? = null
 
@@ -261,7 +281,11 @@ object RideController {
         _calibRuns.value = CalibRuns()
         val dir = store.newRideDir(nowMs)
         open(dir, RideSession(rideSettings()))
-        record(session!!.start(nowMs))
+        val sport = if (calibration) Sport.BIKE else Settings.current.value.sport
+        record(session!!.start(nowMs, sport))
+        stepTotal = 0
+        recordedSteps = -1
+        if (sport == Sport.RUN && Settings.current.value.voiceCues) Voice.start(appContext)
         terrainGrade = newTerrainGrade()
         compassMode = true
         courseDeg = null
@@ -288,6 +312,9 @@ object RideController {
         val entries = store.read(dir)
         val s = RideSession.replay(entries, rideSettings())
         open(dir, s)
+        stepTotal = entries.filterIsInstance<JournalEntry.Steps>().lastOrNull()?.total ?: 0
+        recordedSteps = stepTotal
+        if (s.sport == Sport.RUN && Settings.current.value.voiceCues) Voice.start(appContext)
         val last = entries.maxOfOrNull { it.timeMs } ?: nowMs
         if (s.status == RideStatus.RECORDING) record(s.pause(last))
         record(s.resume(nowMs))
@@ -315,7 +342,9 @@ object RideController {
         if (onRoute != null && profile != null && profile.route === _nav.value?.route) {
             fix = fix.copy(routeGradePercent = profile.gradeAt(onRoute.distanceAlongM))
         }
+        val lapsBefore = s.completedLaps.size
         record(s.onFix(fix))
+        if (s.completedLaps.size > lapsBefore) { journal?.sync(); lapClosed(s) } // auto lap (running)
         if (s.status == RideStatus.RECORDING) updateClimb(fix, s.snapshot(fix.timeMs), onRoute?.distanceAlongM)
         maybeRefreshWeather(fix)
         publish(System.currentTimeMillis())
@@ -389,7 +418,9 @@ object RideController {
         val wasActive = detector.active
         if (rc != null && !detector.active) detector.startRouteClimb(rc)
         var p = detector.add(
-            app.painmeter.core.climb.ClimbSample(fix.timeMs, snap.distanceM, ele, snap.power.power1Hz, snap.hrBpm),
+            app.painmeter.core.climb.ClimbSample(
+                fix.timeMs, snap.distanceM, ele, snap.power.power1Hz.takeIf { snap.sport == Sport.BIKE }, snap.hrBpm,
+            ),
             onRouteClimb = rc != null,
         )
         val onRouteClimb = p?.fromRoute
@@ -427,7 +458,8 @@ object RideController {
     private var weatherBusy = false
 
     private fun maybeRefreshWeather(fix: Fix) {
-        if (!Settings.current.value.weatherOn || weatherBusy) return
+        // Weather only feeds the bike power model: not needed for a run.
+        if (!Settings.current.value.weatherOn || weatherBusy || session?.sport == Sport.RUN) return
         val last = weatherAt
         val due = last == null || fix.timeMs - last.timeMs > 20 * 60_000 ||
             app.painmeter.core.Geo.distanceM(last, fix) > 10_000
@@ -464,7 +496,12 @@ object RideController {
     }
 
     fun tick(nowMs: Long) {
-        if (session != null) publish(nowMs)
+        val s = session ?: return
+        if (s.sport == Sport.RUN && stepTotal != recordedSteps) {
+            recordedSteps = stepTotal
+            record(s.onSteps(nowMs, stepTotal))
+        }
+        publish(nowMs)
     }
 
     // ------------------------------------------------------------ rider commands
@@ -476,7 +513,7 @@ object RideController {
         if (_calibrationMode.value) lastFix?.let { presses += it; updateCalibRuns() }
         record(produced)
         journal?.sync()
-        _laps.tryEmit(s.completedLaps.size)
+        lapClosed(s)
         publish(nowMs)
     }
 
@@ -492,6 +529,7 @@ object RideController {
         val s = session ?: return onDone()
         val dir = rideDir ?: return onDone()
         record(s.stop(nowMs))
+        Voice.stop()
         journal?.sync()
         journal?.close()
         journal = null

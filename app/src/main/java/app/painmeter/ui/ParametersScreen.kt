@@ -62,6 +62,9 @@ fun ParametersScreen(
     onDeleteMap: (java.io.File) -> Unit = {},
     onOpenMapDownloads: () -> Unit = {},
     onCalibrate: () -> Unit = {},
+    theme: app.painmeter.MapThemeFile? = null,
+    onDeleteTheme: () -> Unit = {},
+    onOpenThemeDownloads: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(Pm.Background)) {
         Row(
@@ -112,14 +115,54 @@ fun ParametersScreen(
                     }
                 }
                 Text(
-                    "1. Download your region's .map file (Mapsforge format, e.g. europe/france/rhone-alpes.map) on the phone.\n" +
-                        "2. Import it here.",
+                    "1. Download your region's map on the phone: a .map file (Mapsforge), or for trails the " +
+                        "OpenAndroMaps .zip of the region (paths, trail grades, contour lines).\n" +
+                        "2. Import it here (a .zip is unpacked).",
                     color = Pm.Muted, fontSize = 13.sp,
                 )
                 Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BigButton("GET MAPS", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onOpenMapDownloads)
-                    BigButton("IMPORT .MAP", Modifier.weight(1f), Pm.Blue, Color.White, onClick = onImportMap)
+                    BigButton("IMPORT MAP\nOR THEME", Modifier.weight(1f), Pm.Blue, Color.White, onClick = onImportMap)
                 }
+            }
+            Section("MAP THEME") {
+                if (theme == null) {
+                    Text("Built-in Biker theme (roads, cycle routes).", color = Pm.Text, fontSize = 15.sp)
+                    Text(
+                        "For running on paths and trails, import the free Elevate theme from OpenAndroMaps " +
+                            "(Elevate.zip, \"Mapsforge themes\"), with OpenAndroMaps maps: Elevate does not read the " +
+                            "download.mapsforge.org maps well.",
+                        color = Pm.Muted, fontSize = 13.sp,
+                    )
+                } else {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(theme.name, color = Pm.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Box(
+                            Modifier.height(40.dp).clip(RoundedCornerShape(8.dp)).clickable(onClickLabel = "Delete the theme", onClick = onDeleteTheme)
+                                .padding(horizontal = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { Text("Delete", color = Pm.Rec, fontSize = 14.sp) }
+                    }
+                    ToggleRow("Use it when running", "Hiking style: paths, trail grades, contour lines", settings.themeForRun) {
+                        onChange(settings.copy(themeForRun = it))
+                    }
+                    ToggleRow("Use it when riding", "Cycling style; off = built-in Biker theme", settings.themeForBike) {
+                        onChange(settings.copy(themeForBike = it))
+                    }
+                }
+                BigButton("GET ELEVATE THEME", Modifier.fillMaxWidth().height(52.dp), Pm.Surface, Pm.Text, onClick = onOpenThemeDownloads)
+            }
+            Section("RUNNING") {
+                ToggleRow("Lap every km", "Auto lap at each kilometre, in the FIT file as splits", settings.runAutoLap) {
+                    onChange(settings.copy(runAutoLap = it))
+                }
+                ToggleRow("Spoken laps", "Pace and heart rate read out at each lap", settings.voiceCues) {
+                    onChange(settings.copy(voiceCues = it))
+                }
+                Text(
+                    "Cadence comes from the phone's step counter: carry the phone on you (pocket, armband, belt).",
+                    color = Pm.Muted, fontSize = 13.sp,
+                )
             }
             Section("DISPLAY & LOCATION") {
                 Text("Power shown on screen: average over", color = Pm.Text, fontSize = 16.sp)

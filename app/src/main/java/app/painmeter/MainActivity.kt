@@ -79,7 +79,8 @@ class MainActivity : ComponentActivity() {
         uri ?: return@registerForActivityResult
         importMessage = "Importing map…"
         lifecycleScope.launch {
-            importMessage = withContext(Dispatchers.IO) { RouteStore.importMap(uri) } ?: "Map imported"
+            importMessage = withContext(Dispatchers.IO) { RouteStore.importMap(uri) }
+                ?: if (RouteStore.lastImportKind == "theme") "Map theme imported" else "Map imported"
         }
     }
 
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
             val settings by Settings.current.collectAsStateWithLifecycle()
             val route by RouteStore.route.collectAsStateWithLifecycle()
             val maps by RouteStore.maps.collectAsStateWithLifecycle()
+            val mapTheme by RouteStore.theme.collectAsStateWithLifecycle()
             val routeClimbs by RideController.routeClimbs.collectAsStateWithLifecycle()
             androidx.compose.runtime.LaunchedEffect(route, settings.climbs) { RideController.analyseRoute() }
             val routeInfo = route?.let { r ->
@@ -137,6 +139,7 @@ class MainActivity : ComponentActivity() {
                     nav = RideController.nav.collectAsStateWithLifecycle().value,
                     track = RideController.track.collectAsStateWithLifecycle().value,
                     maps = maps,
+                    theme = mapTheme?.takeIf { settings.usesTheme(current.sport) },
                     climb = RideController.climb.collectAsStateWithLifecycle().value,
                     climbAutoSwitch = settings.climbAutoSwitch,
                     zones = settings.hrZones,
@@ -175,6 +178,7 @@ class MainActivity : ComponentActivity() {
                         androidx.compose.runtime.LaunchedEffect(saved.route) { analysis = RideController.analyse(saved.route) }
                         RoutePreviewScreen(
                             saved, saved.id == activeId, analysis, maps,
+                            theme = mapTheme?.takeIf { settings.usesTheme(settings.sport) }, sport = settings.sport,
                             onUse = { RouteStore.select(saved.id); screen = Screen.HOME },
                             onRename = { RouteStore.rename(saved.id, it) },
                             onDelete = { RouteStore.delete(saved.id); screen = Screen.ROUTES },
@@ -236,7 +240,15 @@ class MainActivity : ComponentActivity() {
                         onDeleteMap = { RouteStore.deleteMap(it) },
                         onCalibrate = { screen = Screen.CALIBRATION },
                         onOpenMapDownloads = {
-                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://download.mapsforge.org/maps/v5/")))
+                            // Running on trails: OpenAndroMaps (paths, trail grades, contours); else Mapsforge.
+                            val url = if (settings.sport == app.painmeter.core.run.Sport.RUN) "https://www.openandromaps.org/en/downloads"
+                            else "https://download.mapsforge.org/maps/v5/"
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        },
+                        theme = mapTheme,
+                        onDeleteTheme = { RouteStore.deleteTheme() },
+                        onOpenThemeDownloads = {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openandromaps.org/en/legend/elevate-mountain-hike-theme")))
                         },
                     )
                 }
@@ -267,6 +279,16 @@ class MainActivity : ComponentActivity() {
                         },
                         onCalibrate = { screen = Screen.CALIBRATION },
                         onRoutes = { screen = Screen.ROUTES },
+                        sport = settings.sport,
+                        onSport = { sp ->
+                            Settings.update { it.copy(sport = sp) }
+                            // Running cadence needs the step detector permission.
+                            if (sp == app.painmeter.core.run.Sport.RUN && ContextCompat.checkSelfPermission(
+                                    this@MainActivity, Manifest.permission.ACTIVITY_RECOGNITION,
+                                ) != PackageManager.PERMISSION_GRANTED
+                            ) requestPermissions()
+                        },
+                        hasTheme = mapTheme != null,
                     )
                 }
             }
@@ -334,6 +356,8 @@ class MainActivity : ComponentActivity() {
     private fun requestPermissions() {
         val perms = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) perms += Manifest.permission.POST_NOTIFICATIONS
+        // Step detector, for the running cadence (Android 10+).
+        perms += Manifest.permission.ACTIVITY_RECOGNITION
         perms += HrMonitor.requiredPermissions()
         askPermissions.launch(perms.distinct().toTypedArray())
     }

@@ -260,4 +260,72 @@ class ScreenshotTest {
             climbs = listOf(climbUi(false, finished = true).progress!!, climbUi(true, finished = true).progress!!.copy(distanceM = 8_700.0, gainM = 612.0, elapsedMs = 2_640_000))), zones, {}, {}) }
         shot("summary")
     }
+
+    // ---------------------------------------------------------------- running (SPEC §16)
+
+    private val runLap = LapSummary(
+        5, 0, 0, 312_000, 1000.0, 18.0, false, avgHr = 156, maxHr = 163, auto = true,
+        avgCadenceSpm = 172.0, gapSpeedMps = 1000 / 296.0, descentM = 4.0,
+    )
+    private val runSnap = RideSnapshot(
+        status = RideStatus.RECORDING, autoPaused = false, startTimeMs = 0, rideTimeMs = 1_938_000,
+        distanceM = 6_380.0, speedMps = 1000 / 301.0, avgSpeedMps = 1000 / 304.0, maxSpeedMps = 4.6,
+        elevationGainM = 96.0, lapNumber = 7, lapTimeMs = 118_000, lapDistanceM = 380.0,
+        lastLap = runLap, gpsAccuracyM = 4.0, gpsAgeMs = 400,
+        hrBpm = 158, hrZone = 3, avgHr = 151, maxHr = 169, lapAvgHr = 155,
+        hrZoneMs = listOf(200_000L, 500_000L, 900_000L, 300_000L, 38_000L),
+        power = PowerState(gradePercent = 3.1, reliable = true),
+        sport = app.painmeter.core.run.Sport.RUN, elevationLossM = 71.0,
+        paceSpeedMps = 1000 / 301.0, gapSpeedMps = 1000 / 284.0, avgGapSpeedMps = 1000 / 297.0, lapGapSpeedMps = 1000 / 290.0,
+        cadenceSpm = 174.0, avgCadenceSpm = 171.0, lapAvgCadenceSpm = 173.0, autoLapM = 7_000.0,
+    )
+
+    @Test fun run() {
+        compose.setContent { RideScreen(runSnap, HrState.Connected("Polar H10", 158, true), {}, {}, {}) }
+        shot("run")
+    }
+
+    @Test fun runPageLap() {
+        compose.setContent { RideScreen(runSnap, HrState.Connected("Polar H10", 158, true), {}, {}, {}, initialPage = LAP_PAGE, zones = zones) }
+        shot("run-lap")
+    }
+
+    @Test fun runPageClimb() {
+        compose.setContent { RideScreen(runSnap, HrState.Connected("Polar H10", 158, true), {}, {}, {}, initialPage = CLIMB_PAGE, climb = climbUi(false)) }
+        shot("run-climb")
+    }
+
+    @Test fun runMap() {
+        val (nav, track) = navAt(750.0, 6.0, false)
+        compose.setContent { RideScreen(runSnap, HrState.Connected("Polar H10", 158, true), {}, {}, {}, nav = nav, track = track, initialPage = MAP_PAGE) }
+        shot("run-map")
+    }
+
+    @Test fun homeRun() {
+        compose.setContent { HomeScreen(
+                true, 4.0, HrState.Connected("Polar H10", 64, true), true, null, null,
+                {}, {}, {}, {}, {}, mapCount = 1, aero = AeroInfo(0.312, 0.0042, 1_763_164_800_000),
+                lastRide = RideStore.Summary(1_763_282_712_000, 2_712_000, 9_020.0, 140.0, null, null, 152, run = true),
+                sport = app.painmeter.core.run.Sport.RUN, hasTheme = true,
+            ) }
+        shot("home-run")
+    }
+
+    @Test fun runSummary() {
+        val laps = List(6) { i -> runLap.copy(index = i, timerMs = 300_000L + i * 4_000) } +
+            LapSummary(6, 0, 0, 118_000, 380.0, 6.0, true, avgHr = 158, gapSpeedMps = 1000 / 290.0)
+        compose.setContent { SummaryScreen(FinishedRide(File("x"), runSnap.copy(status = RideStatus.FINISHED), laps, File("x.fit")), zones, {}, {}) }
+        shot("run-summary")
+    }
+
+    @Test fun parametersRunning() {
+        compose.setContent {
+            ParametersScreen(
+                UserSettings(sport = app.painmeter.core.run.Sport.RUN),
+                HrState.NotPaired, emptyList(), scanning = false, onChange = {}, onScan = {}, onPair = {}, onForget = {}, onBack = {},
+                theme = MapThemeFile(File("theme.zip"), "Elevate.xml", "Elevate"),
+            )
+        }
+        shot("parameters-running")
+    }
 }

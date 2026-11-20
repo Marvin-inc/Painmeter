@@ -12,7 +12,7 @@ explicitly out of the first version.
 
 | | |
 |---|---|
-| Users | One rider (personal use), road cycling only |
+| Users | One rider (personal use), road cycling; running and trail running since §16 |
 | Platform | Android 10+ (API 29), installed by APK (no Play Store) |
 | Language / units | English, metric (km/h, km, m, W, bpm, °C) |
 | Sensors | Phone GPS; Bluetooth LE heart-rate strap. No barometer assumed. No ANT+. |
@@ -48,7 +48,8 @@ RideService (foreground service, keeps running with screen off)
   unit-tested on the JVM. FIT files are written with the Garmin FIT SDK (`com.garmin:fit`).
 - Maps: Mapsforge vector maps (offline `.map` files), rendered with `mapsforge-map-android`
   (0.25) and its "biker" theme. The rider downloads a region's file from download.mapsforge.org on
-  the phone and imports it in Parameters → Maps (several regions can be combined).
+  the phone and imports it in Parameters → Maps (several regions can be combined). For running,
+  OpenAndroMaps maps and their Elevate theme (§16.6).
 
 ---
 
@@ -408,3 +409,69 @@ web tool.
 
 - **[OPEN]** How Strava labels power from a non-Garmin device (estimated vs measured).
 - **[OPEN]** Screen design: layouts, fonts and colours to be fixed from the mockups.
+
+---
+
+## 16. Running mode
+
+Same app, same ride engine: GPS, HR strap, auto-pause, laps, journal, FIT, elevation tiles,
+gradient, climbs, routes, next turn and off-route all work as on the bike. What changes is what is
+measured and shown, and the map.
+
+### 16.1 Choosing the sport
+- **BIKE / RUN** selector on the home screen, kept for the next rides.
+- The sport is written in the journal's first line (`START,<t>,RUN`; no sport = BIKE, so older
+  rides read as rides). The calibration test is always a bike ride.
+- On RUN: no Aero line and no Calibrate on the home screen (Routes instead), no draft button and no
+  weather requests during the run (weather only feeds the bike power model).
+
+### 16.2 Metrics
+| Metric | How |
+|---|---|
+| **Pace** (min/km) | GPS Doppler speed averaged over 10 s (±0.3 m/s GPS noise ≈ ±6 s/km at 5:00/km) |
+| **GAP**, grade-adjusted pace | speed × C(i)/C(0), C = energy cost of running, Minetti et al. 2002: `C(i) = 155.4i⁵ − 30.4i⁴ − 43.3i³ + 46.3i² + 19.5i + 3.6` J/kg/m, i clamped to ±45 %. Gradient from §4 (route profile or tiles, no lag). Live, per lap (Σ distance × factor / time) and for the run. More generous than Strava's GAP on steep descents (below about −10 %). |
+| **Cadence** (steps/min) | phone step detector (`TYPE_STEP_DETECTOR`, permission "physical activity"); total recorded once a second (`STEPS,<t>,<total>`), cadence over the last 10 s; none if no step for 5 s. The phone must be carried (pocket, armband, belt). |
+| **D+ / D−** | D+ as §4; D− with the same 4 m hysteresis on the inverted altitude |
+| HR, zones, time, distance, VAM | as on the bike |
+
+No estimated power for a run: the bike model means nothing on foot, and the FIT has no power.
+
+### 16.3 Auto-pause and laps
+- Auto-pause below **1 km/h for 5 s**, resume above **2 km/h** (walking up a steep trail at
+  3 km/h must never pause; the bike values, resume above 4 km/h, would).
+- **Auto lap every 1 km** (on by default, Parameters → Running), journal `LAP,<t>,A`, FIT lap
+  trigger `distance`. Volume − and the LAP button still add manual laps.
+
+### 16.4 Voice
+- At each lap, spoken through the phone's speech engine over the music: "Kilomètre 3. 5 minutes
+  12 au kilo. Cardio 152." (French if the phone is in French, else English). Manual laps also say
+  the lap time. On by default, Parameters → Running.
+
+### 16.5 Screens
+- **Data**: Pace (full width) · GAP · HR + zone · Clock · Gradient · Cadence · Time · Distance · D+.
+- **Climb**: profile as on the bike; Pace · GAP · Gradient · Cadence · VAM · HR + zone.
+- **Lap**: lap time, LAP button; now: Pace · HR; lap average: Pace · GAP · "next km in" (with
+  the auto lap) · avg HR; last lap strip: time, pace, GAP, HR.
+- **Map**: as on the bike, small fields Distance · Pace · Time.
+- **Summary**: time, distance, avg pace, avg GAP, cadence, D+, D−, HR and zones, splits (one line
+  per km: time, pace, GAP, HR), climbs. **History** shows the pace instead of the power.
+
+### 16.6 Map for trails: OpenAndroMaps + Elevate
+- The Mapsforge maps with the Biker theme show paths poorly. For running, the rider uses
+  **OpenAndroMaps** maps (Mapsforge v5 format, free for personal use: paths, trail grades,
+  waymarked routes, contour lines) and their **Elevate** theme.
+- Parameters → Maps → **Import map or theme** takes a `.map`, an OpenAndroMaps `.zip` (the `.map`
+  inside is extracted) or a theme `.zip` (Elevate.zip; the main `.xml` is the shallowest,
+  shortest name). One theme is kept, loaded straight from its zip (`ZipRenderTheme`).
+- The theme's style is chosen by sport: for a run the first style whose id or title speaks of
+  hiking or trails, for a ride of cycling, else the theme's default; overlays on by default kept.
+- Parameters → Map theme: use it when running (on by default) / when riding (off). A theme that
+  cannot be read falls back to Biker. Elevate does not read the download.mapsforge.org maps well:
+  use it with OpenAndroMaps maps.
+- **[OPEN]** to check on the phone: Elevate (current version) rendered by Mapsforge 0.25, the
+  style names chosen, and drawing speed with a heading-up map.
+
+### 16.7 FIT
+- `sport = running`, `sub_sport = generic`; records carry cadence (FIT running cadence is in
+  strides/min = steps / 2, plus the fractional part); laps and session carry avg cadence and total
+  descent; no power, no threshold power. Strava shows it as a Run and computes its own GAP.

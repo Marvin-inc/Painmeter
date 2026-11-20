@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import app.painmeter.core.HrZones
 import app.painmeter.core.RideSettings
 import app.painmeter.core.power.PowerParams
+import app.painmeter.core.run.RunSettings
+import app.painmeter.core.run.Sport
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -42,6 +44,15 @@ data class UserSettings(
     val calibDateMs: Long? = null,
     val calibSeCda: Double? = null,
     val calibSeCrr: Double? = null,
+    /** The sport chosen on the home screen, used by the next ride (SPEC §16). */
+    val sport: Sport = Sport.BIKE,
+    /** Running: a lap every km, announced by voice. */
+    val runAutoLap: Boolean = true,
+    /** Running: speak each lap (time, pace, HR) through the phone's speech engine. */
+    val voiceCues: Boolean = true,
+    /** Draw the map with the imported theme (OpenAndroMaps Elevate) when running / riding. */
+    val themeForRun: Boolean = true,
+    val themeForBike: Boolean = false,
 ) {
     val climbs: app.painmeter.core.climb.ClimbSettings
         get() = app.painmeter.core.climb.ClimbSettings(
@@ -52,7 +63,13 @@ data class UserSettings(
     val power: PowerParams
         get() = PowerParams(riderKg, bikeKg, cda, crr, lossPercent, rhoFallback, draftFactor, windFactor, ftpW, powerWindowS)
 
-    fun toRideSettings() = RideSettings(autoPause = autoPause, hrZones = hrZones, power = power)
+    fun toRideSettings() = RideSettings(
+        autoPause = autoPause, hrZones = hrZones, power = power,
+        run = RunSettings(autoLapM = if (runAutoLap) 1000.0 else null),
+    )
+
+    /** Whether the map uses the imported theme for [sport]. */
+    fun usesTheme(sport: Sport) = if (sport == Sport.RUN) themeForRun else themeForBike
 }
 
 object Settings {
@@ -97,6 +114,11 @@ object Settings {
             .putLong("calibDate", next.calibDateMs ?: -1)
             .putString("calibSeCda", next.calibSeCda?.toString())
             .putString("calibSeCrr", next.calibSeCrr?.toString())
+            .putString("sport", next.sport.name)
+            .putBoolean("runAutoLap", next.runAutoLap)
+            .putBoolean("voiceCues", next.voiceCues)
+            .putBoolean("themeForRun", next.themeForRun)
+            .putBoolean("themeForBike", next.themeForBike)
             .apply()
     }
 
@@ -133,6 +155,11 @@ object Settings {
             calibDateMs = prefs.getLong("calibDate", -1).takeIf { it > 0 },
             calibSeCda = prefs.getString("calibSeCda", null)?.toDoubleOrNull(),
             calibSeCrr = prefs.getString("calibSeCrr", null)?.toDoubleOrNull(),
+            sport = Sport.entries.firstOrNull { it.name == prefs.getString("sport", null) } ?: d.sport,
+            runAutoLap = prefs.getBoolean("runAutoLap", d.runAutoLap),
+            voiceCues = prefs.getBoolean("voiceCues", d.voiceCues),
+            themeForRun = prefs.getBoolean("themeForRun", d.themeForRun),
+            themeForBike = prefs.getBoolean("themeForBike", d.themeForBike),
         )
     }
 

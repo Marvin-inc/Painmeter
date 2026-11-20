@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Running cadence from the phone's step detector. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <!-- Weather (Open-Meteo) and elevation tile downloads. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Heart-rate strap (Bluetooth LE). -->

@@ -88,7 +88,12 @@ fun ClimbPage(snap: RideSnapshot, climb: RideController.ClimbUi, modifier: Modif
         }
 
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val run = snap.sport == app.painmeter.core.run.Sport.RUN
+            // Running: pace and grade-adjusted pace instead of the power.
+            if (run) Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                DataField("PACE · /km", Format.pace(snap.paceSpeedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp, valueColor = Pm.Power)
+                DataField("GAP · /km", Format.pace(snap.gapSpeedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp)
+            } else Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DataField(
                     "POWER ${snap.power.windowS} s · W", Format.watts(snap.power.powerShort), Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp,
                     valueColor = if (snap.power.powerShort == null) Pm.Disabled else if (snap.power.reliable) Pm.Power else Pm.Uncertain,
@@ -104,7 +109,8 @@ fun ClimbPage(snap: RideSnapshot, climb: RideController.ClimbUi, modifier: Modif
                     "GRADE · %", g?.let { Format.grade(it) } ?: "--", Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp,
                     valueColor = g?.let { Pm.gradeColor(it) } ?: Pm.Disabled,
                 )
-                DataField("SPEED · km/h", Format.speedKmh(snap.speedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp)
+                if (run) DataField("CADENCE · spm", Format.cadence(snap.cadenceSpm), Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp)
+                else DataField("SPEED · km/h", Format.speedKmh(snap.speedMps), Modifier.weight(1f).fillMaxHeight(), valueSize = 80.sp)
             }
             Row(Modifier.fillMaxWidth().height(84.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 DataField(
