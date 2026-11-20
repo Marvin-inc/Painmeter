@@ -143,12 +143,12 @@ fun RoutePreviewScreen(
     active: Boolean,
     analysis: Pair<RouteProfile, List<RouteClimb>>?,
     maps: List<File>,
-    theme: app.painmeter.MapThemeFile? = null,
-    sport: app.painmeter.core.run.Sport = app.painmeter.core.run.Sport.BIKE,
     onUse: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
     onBack: () -> Unit,
+    theme: app.painmeter.MapThemeFile? = null,
+    sport: app.painmeter.core.run.Sport = app.painmeter.core.run.Sport.BIKE,
 ) {
     var renaming by remember { mutableStateOf(false) }
     var newName by remember(saved.name) { mutableStateOf(saved.name) }
