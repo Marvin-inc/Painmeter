@@ -223,6 +223,37 @@ object RouteStore {
         return Unit
     }
 
+    /** Where the Elevate theme is downloaded from (OpenAndroMaps' manual-install zip). */
+    const val ELEVATE_URL = "https://www.openandromaps.org/wp-content/users/tobias/Elevate.zip"
+
+    /**
+     * Downloads the Elevate theme and installs it, without the browser (the "Install in Android"
+     * links of the OpenAndroMaps page only work for other map apps). Blocking: call off the main
+     * thread. Returns an error message, or null when it worked.
+     */
+    fun downloadTheme(url: String = ELEVATE_URL): String? = runCatching {
+        val tmp = File(themesDir, "download.part")
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        conn.connectTimeout = 15_000
+        conn.readTimeout = 30_000
+        conn.instanceFollowRedirects = true
+        try {
+            if (conn.responseCode != 200) return "Download failed (HTTP ${conn.responseCode})"
+            conn.inputStream.use { input -> tmp.outputStream().use { input.copyTo(it) } }
+        } finally {
+            conn.disconnect()
+        }
+        val xml = java.util.zip.ZipFile(tmp).use { z ->
+            pickThemeXml(z.entries().toList().filter { !it.isDirectory && it.name.endsWith(".xml", ignoreCase = true) }.map { it.name })
+        }
+        if (xml == null) { tmp.delete(); return "The downloaded file is not a map theme" }
+        tmp.renameTo(File(themesDir, "theme.zip"))
+        File(themesDir, "theme.txt").writeText("$xml\nElevate")
+        lastImportKind = "theme"
+        refreshTheme()
+        null
+    }.getOrElse { "Download failed: ${it.message}" }
+
     fun deleteTheme() {
         File(themesDir, "theme.zip").delete()
         File(themesDir, "theme.txt").delete()

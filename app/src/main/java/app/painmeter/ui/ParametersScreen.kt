@@ -65,6 +65,7 @@ fun ParametersScreen(
     theme: app.painmeter.MapThemeFile? = null,
     onDeleteTheme: () -> Unit = {},
     onOpenThemeDownloads: () -> Unit = {},
+    onDownloadTheme: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(Pm.Background)) {
         Row(
@@ -150,7 +151,14 @@ fun ParametersScreen(
                         onChange(settings.copy(themeForBike = it))
                     }
                 }
-                BigButton("GET ELEVATE THEME", Modifier.fillMaxWidth().height(52.dp), Pm.Surface, Pm.Text, onClick = onOpenThemeDownloads)
+                Row(Modifier.fillMaxWidth().height(52.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BigButton(
+                        if (theme == null) "DOWNLOAD ELEVATE" else "UPDATE ELEVATE", Modifier.weight(1.4f),
+                        if (theme == null) Pm.Blue else Pm.Surface, if (theme == null) Color.White else Pm.Text, onClick = onDownloadTheme,
+                    )
+                    BigButton("WEB PAGE", Modifier.weight(1f), Pm.Surface, Pm.Text, onClick = onOpenThemeDownloads)
+                }
+                Text("Downloads Elevate.zip from openandromaps.org and installs it (a few MB, Wi-Fi advised).", color = Pm.Muted, fontSize = 13.sp)
             }
             Section("RUNNING") {
                 ToggleRow("Lap every km", "Auto lap at each kilometre, in the FIT file as splits", settings.runAutoLap) {

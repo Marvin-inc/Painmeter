@@ -247,6 +247,12 @@ class MainActivity : ComponentActivity() {
                         },
                         theme = mapTheme,
                         onDeleteTheme = { RouteStore.deleteTheme() },
+                        onDownloadTheme = {
+                            importMessage = "Downloading the Elevate theme…"
+                            lifecycleScope.launch {
+                                importMessage = withContext(Dispatchers.IO) { RouteStore.downloadTheme() } ?: "Elevate theme installed"
+                            }
+                        },
                         onOpenThemeDownloads = {
                             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://www.openandromaps.org/en/legend/elevate-mountain-hike-theme")))
                         },
