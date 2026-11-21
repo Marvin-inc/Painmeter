@@ -268,6 +268,11 @@ Optional extra fields to swap in: 30 s power, wind (head/tail, km/h), NP.
 - Route line if a route is loaded; ridden track in another colour.
 - With a route: **distance to destination**, **next-turn arrow + distance**, **off-route alert**.
 - Two small fields: speed, power 10 s.
+- **Full map** (while paused only): a ⤢ FULL MAP button on the Map page opens a full-screen map,
+  north up, moved with a finger and zoomed by pinching or + / −, like a phone map app; route,
+  ridden track and a dot for the rider; ◎ comes back to the rider, ✕ or back closes it. It
+  closes by itself when the ride resumes. While riding the map keeps following the rider and
+  swipes change page.
 
 **Next-turn detection** (no routing engine): when the route is loaded, points where the route
 heading changes by > 35° within 30 m are marked as turns (left / right / sharp / U-turn).

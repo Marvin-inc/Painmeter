@@ -74,6 +74,8 @@ fun MapPage(
     modifier: Modifier = Modifier,
     /** Imported theme to draw with (null: built-in Biker theme). */
     theme: MapThemeFile? = null,
+    /** Opens the full-screen map you can move (only while paused); null hides the button. */
+    onFullMap: (() -> Unit)? = null,
 ) {
     val run = snap.sport == Sport.RUN
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -122,6 +124,12 @@ fun MapPage(
             }
             // The rider, always in the middle and pointing up (the map turns underneath).
             RiderArrow(Modifier.align(Alignment.Center).size(40.dp))
+            if (onFullMap != null) {
+                BigButton(
+                    "⤢ FULL MAP", Modifier.align(Alignment.BottomStart).padding(10.dp).width(150.dp).height(52.dp),
+                    Pm.Blue, Color.White, onClick = onFullMap,
+                )
+            }
         }
 
         Row(Modifier.fillMaxWidth().height(84.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -260,13 +268,14 @@ private object MapPrefs {
 }
 
 /** Owns the MapView and its layers, rebuilt only when the inputs really change. */
-private class MapHolder(context: Context) {
+private class MapHolder(context: Context, interactive: Boolean = false) {
     init {
         AndroidGraphicFactory.createInstance(context.applicationContext as android.app.Application)
     }
 
     val view = MapView(context).apply {
-        isClickable = false
+        // Interactive (full-screen map): Mapsforge handles drag, pinch zoom and double tap itself.
+        isClickable = interactive
         mapScaleBar.isVisible = true
         setBuiltInZoomControls(false)
     }
@@ -344,8 +353,84 @@ private class MapHolder(context: Context) {
         AndroidGraphicFactory.INSTANCE,
     )
 
+    private var marker: org.mapsforge.map.layer.overlay.FixedPixelCircle? = null
+
+    /** A dot where the rider is (the full-screen map is north up and moves freely). */
+    fun setMarker(position: Pair<Double, Double>?) {
+        if (position == null) return
+        val ll = LatLong(position.first, position.second)
+        val m = marker ?: org.mapsforge.map.layer.overlay.FixedPixelCircle(
+            ll, 10f,
+            AndroidGraphicFactory.INSTANCE.createPaint().apply { color = 0xFFFFC233.toInt(); setStyle(Style.FILL) },
+            AndroidGraphicFactory.INSTANCE.createPaint().apply {
+                color = 0xFF0B0D10.toInt(); strokeWidth = 3 * view.model.displayModel.scaleFactor; setStyle(Style.STROKE)
+            },
+        ).also { marker = it; view.layerManager.layers.add(it) }
+        if (m.position != ll) { m.setLatLong(ll); m.requestRedraw() }
+    }
+
+    fun center(position: Pair<Double, Double>, zoom: Int? = null) {
+        val pos = view.model.mapViewPosition
+        pos.center = LatLong(position.first, position.second)
+        zoom?.let { pos.setZoomLevel(it.toByte(), false) }
+    }
+
+    fun zoomBy(d: Int) {
+        val pos = view.model.mapViewPosition
+        if (d > 0) pos.zoomIn() else pos.zoomOut()
+    }
+
     fun destroy() {
         view.destroyAll()
+    }
+}
+
+/**
+ * The full-screen map (SPEC §9.5), offered while paused: north up, moved with a finger and zoomed
+ * with two (or + / −), like a phone map app. Route, ridden track and a dot for the rider; ◎ comes
+ * back to the rider. Closed with ✕ or the back key.
+ */
+@Composable
+fun FullScreenMap(
+    maps: List<File>, nav: RideController.Nav?, track: RideController.Track, onClose: () -> Unit,
+    theme: MapThemeFile? = null, sport: Sport = Sport.BIKE,
+) {
+    androidx.activity.compose.BackHandler(onBack = onClose)
+    val context = LocalContext.current
+    val holder = remember { MapHolder(context, interactive = true) }
+    DisposableEffect(Unit) { onDispose { holder.destroy() } }
+    var centred by remember { androidx.compose.runtime.mutableStateOf(false) }
+    Box(Modifier.fillMaxSize().background(Color(0xFF161B22))) {
+        if (LocalInspectionMode.current || maps.isEmpty()) {
+            Text(
+                if (maps.isEmpty()) "No offline map yet.\nImport one in Parameters → Maps." else "Map",
+                color = Pm.Muted, fontSize = 15.sp, modifier = Modifier.align(Alignment.Center).padding(24.dp),
+            )
+        } else {
+            AndroidView(factory = { holder.view }, modifier = Modifier.fillMaxSize(), update = {
+                holder.setMaps(maps, theme, sport)
+                holder.setRoute(nav?.route)
+                holder.setTrack(track.points)
+                holder.setMarker(track.position)
+                // Centre on the rider once; after that the map stays where the finger leaves it.
+                val start = track.position ?: nav?.route?.points?.firstOrNull()?.let { it.lat to it.lon }
+                if (!centred && start != null) { holder.center(start, MapPrefs.zoom(context)); centred = true }
+            })
+        }
+        Column(Modifier.align(Alignment.TopEnd).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            BigButton("✕", Modifier.width(60.dp).height(60.dp).semantics { contentDescription = "Close the full map" }, Pm.Surface, Pm.Text, onClick = onClose)
+            BigButton("◎", Modifier.width(60.dp).height(60.dp).semantics { contentDescription = "Back to my position" }, Pm.Surface, Pm.Power, onClick = {
+                track.position?.let { holder.center(it) }
+            })
+            BigButton("+", Modifier.width(60.dp).height(60.dp).semantics { contentDescription = "Zoom in" }, Pm.Surface, Pm.Text, onClick = { holder.zoomBy(1) })
+            BigButton("−", Modifier.width(60.dp).height(60.dp).semantics { contentDescription = "Zoom out" }, Pm.Surface, Pm.Text, onClick = { holder.zoomBy(-1) })
+        }
+        Text(
+            "North up · drag to move, pinch to zoom",
+            color = Pm.Muted, fontSize = 13.sp,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp).clip(RoundedCornerShape(8.dp))
+                .background(Color(0xCC14181E)).padding(horizontal = 10.dp, vertical = 6.dp),
+        )
     }
 }
 

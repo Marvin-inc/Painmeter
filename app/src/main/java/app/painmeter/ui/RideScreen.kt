@@ -117,6 +117,9 @@ fun RideScreen(
     }
     val clock = SimpleDateFormat("HH:mm", Locale.ROOT).format(Date())
     val paused = snap.status == RideStatus.PAUSED
+    // Full-screen map you can move, offered while paused; closes by itself when the ride goes on.
+    var fullMap by remember { mutableStateOf(false) }
+    LaunchedEffect(paused) { if (!paused) fullMap = false }
 
     Box(Modifier.fillMaxSize().background(Pm.Background)) {
         Column(Modifier.fillMaxSize()) {
@@ -211,7 +214,10 @@ fun RideScreen(
                                 }
                     CLIMB_PAGE -> ClimbPage(snap, climb, Modifier.fillMaxSize().padding(10.dp))
                     LAP_PAGE -> LapPage(snap, zones, onLap, Modifier.fillMaxSize().padding(10.dp))
-                    else -> MapPage(snap, nav, track, maps, Modifier.fillMaxSize().padding(10.dp), theme)
+                    else -> MapPage(
+                        snap, nav, track, maps, Modifier.fillMaxSize().padding(10.dp), theme,
+                        onFullMap = if (paused) ({ fullMap = true }) else null,
+                    )
                 }
             }
             if (calibrationRuns == null) PageDots(pager.currentPage % PAGES, PAGES)
@@ -257,6 +263,7 @@ fun RideScreen(
                 Text("STILL ON A WHEEL?", color = Color(0xFF111111), fontWeight = FontWeight.Bold, fontSize = 30.sp)
             }
         }
+        if (fullMap) FullScreenMap(maps, nav, track, onClose = { fullMap = false }, theme = theme, sport = snap.sport)
         lapFlash?.let { n ->
             Box(
                 Modifier.align(Alignment.Center).clip(RoundedCornerShape(20.dp)).background(Pm.Blue)
